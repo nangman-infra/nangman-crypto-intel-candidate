@@ -1,47 +1,91 @@
 # intel-candidate-app
 
-`intel-candidate-app`은 구조화된 intel packet을 연구 후보로 승격할지 판단하는 deterministic gate다.
+`intel-candidate-app` is the deterministic candidate gate for the AI-DLC alpha discovery loop.
 
-## Live
+It does not crawl raw web sources, call LLMs, run NLP extraction, make strategy decisions, place orders, or touch private exchange/account APIs. Its job is narrower: read structured intel packets from `intel-structuring`, attach deterministic candidate scoring and lineage, then write candidate artifacts for downstream research.
 
-```bash
-intel-candidate-worker \
-  --nats-url nats://REPLACE_WITH_S2S_NATS_HOST:4222 \
-  --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
-  --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
-  --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
-  --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json
+## Pipeline position
+
+```text
+intel-crawl
+  -> raw intel L0 in S3
+  -> intel-structuring
+  -> structured_pointer_v1 on NATS + structured_intel_packet_v1 in S3
+  -> intel-candidate
+  -> screening events, evidence bundles, hypothesis states, revision index
+  -> research
 ```
 
-## Replay
+`intel-candidate` reads `structured_pointer_v1` messages from NATS and verifies the S3 payload before scoring. It never reads `intel-crawl` raw outputs directly.
 
-정책, schema, app version, market reference 정책이 바뀌면 NATS에 남아 있는 pointer만 다시 읽으면 부족하다.
+## Default execution
 
-S3 durable structured packet prefix를 다시 스캔해야 한다.
+Production runs one process: `intel-candidate-agent`.
+
+The agent continuously consumes live structured intel pointers and, when configured, runs bounded S3 repair scans inside the same process. This keeps AI-DLC operation autonomous without forcing an operator to choose between a live binary and a replay binary.
 
 ```bash
-intel-candidate-replay-worker \
+intel-candidate-agent \
   --nats-url nats://REPLACE_WITH_S2S_NATS_HOST:4222 \
   --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
   --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
   --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
   --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json \
-  --replay-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/ \
-  --replay-report-prefix candidate-replay-report
+  --repair-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/ \
+  --repair-interval-secs 3600 \
+  --repair-max-keys-per-prefix 500
 ```
 
-Replay worker는 모든 입력 key를 `processed`, `skipped`, `failed` 중 하나로 report에 남기고, report를 candidate S3 bucket에 저장한다.
+Repair scans are bounded by prefix, interval, and key count. They use the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
 
-## Contract
+## Canonical storage contract
 
-이 앱의 입력 source of truth는 `structured_pointer_v1` NATS pointer와 S3의 `structured_intel_packet_v1` 객체다. NATS는 pointer bus이고, canonical payload는 S3에 있다.
+S3 is the durable source of truth. NATS is only the pointer/event bus.
+
+Input:
 
 ```text
-schemas/*.schema.json
-asyncapi/nats.asyncapi.json
+NATS stream: STRUCTURED_INTEL
+NATS subject: structured_intel_packet.created
+S3 schema: structured_intel_packet_v1
 ```
 
-Worker는 입력 pointer schema, pointer가 가리키는 payload schema, S3 객체 sha256을 검증한 뒤 scoring을 시작한다. 출력은 S3에 screening/event bundle/hypothesis state를 먼저 쓰고, `intel_candidate_pointer_v1` pointer를 NATS에 publish ack 받은 뒤 input message를 ack한다.
+Output:
+
+```text
+NATS stream: INTEL_CANDIDATE
+NATS subjects:
+  intel_candidate_screening_event.created
+  intel_candidate_evidence_bundle.created
+  intel_candidate_hypothesis_state.created
+
+S3 artifacts:
+  intel_candidate_screening_event_v1
+  intel_candidate_evidence_bundle_v1
+  intel_candidate_hypothesis_state_v1
+  intel_candidate_revision_index_v1
+```
+
+The app validates pointer schema, payload schema, S3 checksum, scoring policy, and revision ordering before acknowledging the input message.
+
+## Diagnostic commands
+
+The standalone live and replay binaries remain available for operator diagnostics and one-off backfills, but ECS and Docker default to `intel-candidate-agent`.
+
+```bash
+intel-candidate-worker --help
+intel-candidate-replay-worker --help
+```
+
+## Deployment defaults
+
+Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://192.168.10.45:4222`, with security groups/firewall rules limited to the required producers and consumers.
+
+The example task definition is in:
+
+```text
+/Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app/ecs/task-definition.example.json
+```
 
 ## Quality gate
 

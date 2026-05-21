@@ -186,7 +186,7 @@ fn help_text() -> &'static str {
 Usage:
   intel-candidate-app \
     --input-file /Volumes/WD/Developments/nangman-crypto/data/examples/structured-intel-packets.jsonl \
-    --policy-file /Volumes/WD/Developments/nangman-crypto/domains/intel-candidate/policies/scoring-policy.v1.json \
+    --policy-file /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app/policies/scoring-policy.v1.json \
     --universe-snapshot-file /Volumes/WD/Developments/nangman-crypto/data/examples/symbol-universe-snapshot.json \
     --market-feature-delta-file /Volumes/WD/Developments/nangman-crypto/data/examples/market-feature-delta.json \
     --market-regime-context-file /Volumes/WD/Developments/nangman-crypto/data/examples/market-regime-context.json \

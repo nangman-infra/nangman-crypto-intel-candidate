@@ -387,7 +387,7 @@ Usage:
     --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
     --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
     --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
-    --policy-file /Volumes/WD/Developments/nangman-crypto/domains/intel-candidate/policies/scoring-policy.v1.json \
+    --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json \
     --replay-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/
 
 Replay-specific flags:

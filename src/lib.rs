@@ -1,7 +1,9 @@
+pub mod agent;
 pub mod cli;
 pub mod error;
 pub mod hash;
 pub mod io;
+pub mod live;
 pub mod model;
 pub mod nats;
 pub mod policy;

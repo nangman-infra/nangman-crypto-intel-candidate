@@ -21,6 +21,9 @@ RUN apt-get update \
     && chown -R intel-candidate:intel-candidate /home/intel-candidate
 
 COPY --from=builder \
+    /opt/nangman-crypto/intel-candidate/target/release/intel-candidate-agent \
+    /usr/local/bin/intel-candidate-agent
+COPY --from=builder \
     /opt/nangman-crypto/intel-candidate/target/release/intel-candidate-worker \
     /usr/local/bin/intel-candidate-worker
 COPY --from=builder \
@@ -34,4 +37,4 @@ USER intel-candidate
 
 ENV AWS_SDK_LOAD_CONFIG=1
 
-CMD ["/usr/local/bin/intel-candidate-worker"]
+CMD ["/usr/local/bin/intel-candidate-agent"]
