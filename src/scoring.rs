@@ -45,6 +45,36 @@ struct AdmissionState {
     observe_reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AdmissionSignals {
+    has_valid_schema: bool,
+    has_required_times: bool,
+    has_valid_time_order: bool,
+    has_evidence: bool,
+    has_lineage: bool,
+    has_symbols: bool,
+    has_source_independence: bool,
+    source_independence_ok_for_research: bool,
+    source_independence_ok_for_strong: bool,
+    has_symbol_resolution_trace: bool,
+    symbol_resolution_ok_for_research: bool,
+    symbol_resolution_ok_for_strong: bool,
+    has_data_quality_summary: bool,
+    has_market_feature_delta: bool,
+    has_market_regime_context: bool,
+    selected_market_feature_delta: Option<SelectedMarketArtifactTrace>,
+    selected_market_regime_context: Option<SelectedMarketArtifactTrace>,
+    has_point_in_time_universe: bool,
+    approved_universe_symbol: bool,
+    has_derivatives_metric_delta: bool,
+    market_context_allows_research: bool,
+    market_context_allows_strong: bool,
+    stale_market_context: bool,
+    social_only: bool,
+    has_medium_or_high_contradiction: bool,
+    forbidden_output_terms: Vec<String>,
+}
+
 impl AdmissionState {
     fn research_block_reasons(&self, packet: &StructuredIntelPacket) -> Vec<String> {
         let mut reasons = Vec::new();
@@ -254,22 +284,55 @@ fn evaluate_admission(
     policy: &ScoringPolicy,
     market_artifacts: MarketArtifactInputs<'_>,
 ) -> AdmissionState {
+    let signals = build_admission_signals(packet, policy, market_artifacts);
+    let quarantine_reasons = collect_quarantine_reasons(policy, &signals);
+    let reject_reasons = collect_reject_reasons(policy, &signals);
+    let observe_reasons = collect_observe_reasons(packet, policy, &signals);
+
+    AdmissionState {
+        has_valid_schema: signals.has_valid_schema,
+        has_required_times: signals.has_required_times,
+        has_valid_time_order: signals.has_valid_time_order,
+        has_evidence: signals.has_evidence,
+        has_lineage: signals.has_lineage,
+        has_symbols: signals.has_symbols,
+        has_source_independence: signals.has_source_independence,
+        source_independence_ok_for_research: signals.source_independence_ok_for_research,
+        source_independence_ok_for_strong: signals.source_independence_ok_for_strong,
+        has_symbol_resolution_trace: signals.has_symbol_resolution_trace,
+        symbol_resolution_ok_for_research: signals.symbol_resolution_ok_for_research,
+        symbol_resolution_ok_for_strong: signals.symbol_resolution_ok_for_strong,
+        has_data_quality_summary: signals.has_data_quality_summary,
+        has_market_feature_delta: signals.has_market_feature_delta,
+        has_market_regime_context: signals.has_market_regime_context,
+        selected_market_feature_delta: signals.selected_market_feature_delta,
+        selected_market_regime_context: signals.selected_market_regime_context,
+        has_point_in_time_universe: signals.has_point_in_time_universe,
+        approved_universe_symbol: signals.approved_universe_symbol,
+        has_derivatives_metric_delta: signals.has_derivatives_metric_delta,
+        market_context_allows_research: signals.market_context_allows_research,
+        market_context_allows_strong: signals.market_context_allows_strong,
+        stale_market_context: signals.stale_market_context,
+        social_only: signals.social_only,
+        has_medium_or_high_contradiction: signals.has_medium_or_high_contradiction,
+        forbidden_output_terms: signals.forbidden_output_terms,
+        quarantine_reasons,
+        reject_reasons,
+        observe_reasons,
+    }
+}
+
+fn build_admission_signals(
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+    market_artifacts: MarketArtifactInputs<'_>,
+) -> AdmissionSignals {
     let universe = market_artifacts.universe;
     let has_valid_schema =
         packet.schema_version.as_deref() == Some(STRUCTURED_PACKET_SCHEMA_VERSION);
     let forbidden_output_terms = forbidden_generated_terms(packet, policy);
-    let has_required_times = packet.fetched_at_ms.is_some()
-        && packet.structured_at_ms.is_some()
-        && packet.decision_available_at_ms.is_some();
-    let has_valid_time_order = has_required_times
-        && packet.decision_available_at_ms.unwrap_or_default()
-            >= packet
-                .published_at_ms
-                .unwrap_or(packet.fetched_at_ms.unwrap_or_default())
-        && packet.decision_available_at_ms.unwrap_or_default()
-            >= packet.fetched_at_ms.unwrap_or_default()
-        && packet.decision_available_at_ms.unwrap_or_default()
-            >= packet.structured_at_ms.unwrap_or_default();
+    let has_required_times = has_required_replay_times(packet);
+    let has_valid_time_order = has_valid_replay_time_order(packet);
     let has_evidence = !packet.text_evidence.is_empty()
         || !packet.metric_evidence.is_empty()
         || !packet.evidence_sentences.is_empty();
@@ -304,39 +367,16 @@ fn evaluate_admission(
         .as_ref()
         .and_then(|reference| reference.market_data_quality_summary_key.as_ref())
         .is_some_and(|key| !key.trim().is_empty());
-    let has_market_feature_delta_ref = packet
-        .market_context_ref
-        .as_ref()
-        .and_then(market_feature_delta_artifact_key)
-        .is_some_and(|key| !key.trim().is_empty());
-    let has_market_regime_context_ref = packet
-        .market_context_ref
-        .as_ref()
-        .and_then(|reference| reference.market_regime_context_key.as_ref())
-        .is_some_and(|key| !key.trim().is_empty());
-    let selected_market_feature_delta = if has_market_feature_delta_ref {
-        selected_market_feature_delta(packet, market_artifacts, |_| true)
-    } else {
-        None
-    };
-    let selected_market_regime_context = if has_market_regime_context_ref {
-        selected_market_regime_context(packet, market_artifacts)
-    } else {
-        None
-    };
+    let selected_market_feature_delta =
+        selected_market_feature_delta_when_referenced(packet, market_artifacts);
+    let selected_market_regime_context =
+        selected_market_regime_context_when_referenced(packet, market_artifacts);
     let has_market_feature_delta = selected_market_feature_delta.is_some();
     let has_market_regime_context = selected_market_regime_context.is_some();
     let has_point_in_time_universe = universe.is_some();
     let approved_universe_symbol =
         universe.is_some_and(|snapshot| approved_universe_symbols(packet, snapshot));
-    let has_derivatives_metric_delta =
-        packet.metric_evidence.iter().any(|metric| {
-            metric.delta_pct.is_some()
-                && matches!(
-                    metric.metric_name.as_str(),
-                    "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
-                )
-        }) || selected_derivatives_market_feature_delta(packet, market_artifacts).is_some();
+    let has_derivatives_metric_delta = has_derivatives_metric_delta(packet, market_artifacts);
     let market_status = effective_market_context_status(packet);
     let market_context_allows_strong =
         market_status.as_policy_key() == policy.market_context_status_policy.strong_requires;
@@ -353,78 +393,7 @@ fn evaluate_admission(
         .iter()
         .any(is_medium_contradiction);
 
-    let mut quarantine_reasons = Vec::new();
-    let mut reject_reasons = Vec::new();
-    let mut observe_reasons = Vec::new();
-
-    if policy.hard_gates.forbid_invalid_schema && !has_valid_schema {
-        quarantine_reasons.push("invalid_schema_version".to_owned());
-    }
-    if policy.hard_gates.forbid_forbidden_output_terms && !forbidden_output_terms.is_empty() {
-        quarantine_reasons.push(format!(
-            "forbidden_output_terms:{}",
-            forbidden_output_terms.join(",")
-        ));
-    }
-    if policy.hard_gates.forbid_missing_evidence && !has_evidence {
-        reject_reasons.push("missing_evidence".to_owned());
-    }
-    if policy.hard_gates.forbid_missing_lineage && !has_lineage {
-        reject_reasons.push("missing_lineage".to_owned());
-    }
-    if !has_symbols {
-        reject_reasons.push("missing_normalized_symbols".to_owned());
-    }
-    if policy.hard_gates.require_decision_available_at_ms && !has_required_times {
-        observe_reasons.push("missing_replay_time_contract".to_owned());
-    }
-    if has_required_times && !has_valid_time_order {
-        observe_reasons.push("invalid_replay_time_order".to_owned());
-    }
-    if policy.hard_gates.require_point_in_time_universe && !has_point_in_time_universe {
-        observe_reasons.push("missing_point_in_time_universe".to_owned());
-    }
-    if policy.hard_gates.require_approved_universe_for_research && !approved_universe_symbol {
-        observe_reasons.push("not_admitted_universe".to_owned());
-    }
-    if policy.hard_gates.require_data_quality_summary_for_research && !has_data_quality_summary {
-        observe_reasons.push("missing_data_quality_summary".to_owned());
-    }
-    if policy.hard_gates.require_market_feature_delta_for_research && !has_market_feature_delta {
-        observe_reasons.push("missing_market_feature_delta".to_owned());
-    }
-    if policy.hard_gates.require_market_regime_context_for_research && !has_market_regime_context {
-        observe_reasons.push("missing_market_regime_context".to_owned());
-    }
-    if policy.hard_gates.require_source_independence_for_research && !has_source_independence {
-        observe_reasons.push("missing_source_independence".to_owned());
-    }
-    if has_source_independence && !source_independence_ok_for_research {
-        observe_reasons.push("insufficient_source_independence".to_owned());
-    }
-    if policy
-        .hard_gates
-        .require_symbol_resolution_trace_for_research
-        && !has_symbol_resolution_trace
-    {
-        observe_reasons.push("missing_symbol_resolution_trace".to_owned());
-    }
-    if has_symbol_resolution_trace && !symbol_resolution_ok_for_research {
-        observe_reasons.push("weak_symbol_resolution".to_owned());
-    }
-    if policy
-        .hard_gates
-        .forbid_research_without_metric_delta_for_derivatives
-        && packet.event_type.is_derivatives_like()
-        && !has_derivatives_metric_delta
-    {
-        observe_reasons.push("derivatives_metric_delta_missing".to_owned());
-    }
-    if !market_context_allows_research {
-        observe_reasons.push("market_context_not_research_admissible".to_owned());
-    }
-
-    AdmissionState {
+    AdmissionSignals {
         has_valid_schema,
         has_required_times,
         has_valid_time_order,
@@ -451,10 +420,179 @@ fn evaluate_admission(
         social_only,
         has_medium_or_high_contradiction,
         forbidden_output_terms,
-        quarantine_reasons,
-        reject_reasons,
-        observe_reasons: dedupe_strings(observe_reasons),
     }
+}
+
+fn collect_quarantine_reasons(policy: &ScoringPolicy, signals: &AdmissionSignals) -> Vec<String> {
+    let mut reasons = gated_reasons([(
+        policy.hard_gates.forbid_invalid_schema && !signals.has_valid_schema,
+        "invalid_schema_version",
+    )]);
+    if policy.hard_gates.forbid_forbidden_output_terms && !signals.forbidden_output_terms.is_empty()
+    {
+        reasons.push(format!(
+            "forbidden_output_terms:{}",
+            signals.forbidden_output_terms.join(",")
+        ));
+    }
+    reasons
+}
+
+fn collect_reject_reasons(policy: &ScoringPolicy, signals: &AdmissionSignals) -> Vec<String> {
+    gated_reasons([
+        (
+            policy.hard_gates.forbid_missing_evidence && !signals.has_evidence,
+            "missing_evidence",
+        ),
+        (
+            policy.hard_gates.forbid_missing_lineage && !signals.has_lineage,
+            "missing_lineage",
+        ),
+        (!signals.has_symbols, "missing_normalized_symbols"),
+    ])
+}
+
+fn collect_observe_reasons(
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+    signals: &AdmissionSignals,
+) -> Vec<String> {
+    dedupe_strings(gated_reasons([
+        (
+            policy.hard_gates.require_decision_available_at_ms && !signals.has_required_times,
+            "missing_replay_time_contract",
+        ),
+        (
+            signals.has_required_times && !signals.has_valid_time_order,
+            "invalid_replay_time_order",
+        ),
+        (
+            policy.hard_gates.require_point_in_time_universe && !signals.has_point_in_time_universe,
+            "missing_point_in_time_universe",
+        ),
+        (
+            policy.hard_gates.require_approved_universe_for_research
+                && !signals.approved_universe_symbol,
+            "not_admitted_universe",
+        ),
+        (
+            policy.hard_gates.require_data_quality_summary_for_research
+                && !signals.has_data_quality_summary,
+            "missing_data_quality_summary",
+        ),
+        (
+            policy.hard_gates.require_market_feature_delta_for_research
+                && !signals.has_market_feature_delta,
+            "missing_market_feature_delta",
+        ),
+        (
+            policy.hard_gates.require_market_regime_context_for_research
+                && !signals.has_market_regime_context,
+            "missing_market_regime_context",
+        ),
+        (
+            policy.hard_gates.require_source_independence_for_research
+                && !signals.has_source_independence,
+            "missing_source_independence",
+        ),
+        (
+            signals.has_source_independence && !signals.source_independence_ok_for_research,
+            "insufficient_source_independence",
+        ),
+        (
+            policy
+                .hard_gates
+                .require_symbol_resolution_trace_for_research
+                && !signals.has_symbol_resolution_trace,
+            "missing_symbol_resolution_trace",
+        ),
+        (
+            signals.has_symbol_resolution_trace && !signals.symbol_resolution_ok_for_research,
+            "weak_symbol_resolution",
+        ),
+        (
+            policy
+                .hard_gates
+                .forbid_research_without_metric_delta_for_derivatives
+                && packet.event_type.is_derivatives_like()
+                && !signals.has_derivatives_metric_delta,
+            "derivatives_metric_delta_missing",
+        ),
+        (
+            !signals.market_context_allows_research,
+            "market_context_not_research_admissible",
+        ),
+    ]))
+}
+
+fn gated_reasons<const N: usize>(checks: [(bool, &str); N]) -> Vec<String> {
+    checks
+        .into_iter()
+        .filter(|(enabled, _reason)| *enabled)
+        .map(|(_enabled, reason)| reason.to_owned())
+        .collect()
+}
+
+fn has_required_replay_times(packet: &StructuredIntelPacket) -> bool {
+    packet.fetched_at_ms.is_some()
+        && packet.structured_at_ms.is_some()
+        && packet.decision_available_at_ms.is_some()
+}
+
+fn has_valid_replay_time_order(packet: &StructuredIntelPacket) -> bool {
+    let Some(decision_available_at_ms) = packet.decision_available_at_ms else {
+        return false;
+    };
+    let Some(fetched_at_ms) = packet.fetched_at_ms else {
+        return false;
+    };
+    let Some(structured_at_ms) = packet.structured_at_ms else {
+        return false;
+    };
+    decision_available_at_ms >= packet.published_at_ms.unwrap_or(fetched_at_ms)
+        && decision_available_at_ms >= fetched_at_ms
+        && decision_available_at_ms >= structured_at_ms
+}
+
+fn selected_market_feature_delta_when_referenced(
+    packet: &StructuredIntelPacket,
+    market_artifacts: MarketArtifactInputs<'_>,
+) -> Option<SelectedMarketArtifactTrace> {
+    let has_reference = packet
+        .market_context_ref
+        .as_ref()
+        .and_then(market_feature_delta_artifact_key)
+        .is_some_and(|key| !key.trim().is_empty());
+    has_reference
+        .then(|| selected_market_feature_delta(packet, market_artifacts, |_| true))
+        .flatten()
+}
+
+fn selected_market_regime_context_when_referenced(
+    packet: &StructuredIntelPacket,
+    market_artifacts: MarketArtifactInputs<'_>,
+) -> Option<SelectedMarketArtifactTrace> {
+    let has_reference = packet
+        .market_context_ref
+        .as_ref()
+        .and_then(|reference| reference.market_regime_context_key.as_ref())
+        .is_some_and(|key| !key.trim().is_empty());
+    has_reference
+        .then(|| selected_market_regime_context(packet, market_artifacts))
+        .flatten()
+}
+
+fn has_derivatives_metric_delta(
+    packet: &StructuredIntelPacket,
+    market_artifacts: MarketArtifactInputs<'_>,
+) -> bool {
+    packet.metric_evidence.iter().any(|metric| {
+        metric.delta_pct.is_some()
+            && matches!(
+                metric.metric_name.as_str(),
+                "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
+            )
+    }) || selected_derivatives_market_feature_delta(packet, market_artifacts).is_some()
 }
 
 fn calculate_score(
@@ -464,8 +602,27 @@ fn calculate_score(
     admission: &AdmissionState,
 ) -> ScoreBreakdown {
     let mut components = Vec::new();
+    push_source_score_components(&mut components, packet, policy);
+    push_market_score_components(&mut components, packet, policy, universe, admission);
+    push_quality_score_components(&mut components, packet, policy, admission);
+    push_novelty_score_component(&mut components, packet, policy);
+    push_contradiction_score_components(&mut components, packet, policy);
+    push_penalty_score_components(&mut components, policy, admission);
+    push_evidence_quality_score_components(&mut components, packet, policy);
+    let final_score = components.iter().map(|component| component.value).sum();
+    ScoreBreakdown {
+        components,
+        final_score,
+    }
+}
+
+fn push_source_score_components(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+) {
     push_component(
-        &mut components,
+        components,
         "symbol_confidence",
         policy.weight(&format!(
             "symbol_confidence_{}",
@@ -479,7 +636,7 @@ fn calculate_score(
         .is_some_and(|summary| summary.independent_source_count >= 2)
     {
         push_component(
-            &mut components,
+            components,
             "source_independence_multi",
             policy.weight("source_independence_multi"),
             "two or more independent sources",
@@ -491,30 +648,47 @@ fn calculate_score(
         .is_some_and(|summary| summary.official_source_present)
     {
         push_component(
-            &mut components,
+            components,
             "official_source",
             policy.weight("official_source"),
             "official source present",
         );
     }
+}
+
+fn push_market_score_components(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+    universe: Option<&SymbolUniverseSnapshot>,
+    admission: &AdmissionState,
+) {
     let market_status = effective_market_context_status(packet);
     push_component(
-        &mut components,
+        components,
         "market_context",
         policy.weight(&format!("market_context_{}", market_status.as_policy_key())),
         "market context status",
     );
     if universe.is_some() && admission.approved_universe_symbol {
         push_component(
-            &mut components,
+            components,
             "approved_universe_symbol",
             policy.weight("approved_universe_symbol"),
             "point-in-time universe approved every symbol",
         );
     }
+}
+
+fn push_quality_score_components(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+    admission: &AdmissionState,
+) {
     if admission.has_data_quality_summary {
         push_component(
-            &mut components,
+            components,
             "data_quality_good",
             policy.weight("data_quality_good"),
             "market data quality summary present",
@@ -526,7 +700,7 @@ fn calculate_score(
         .any(|trace| trace.mapping_confidence.is_strong())
     {
         push_component(
-            &mut components,
+            components,
             "symbol_resolution_strong",
             policy.weight("symbol_resolution_strong"),
             "strong symbol resolution trace",
@@ -534,14 +708,14 @@ fn calculate_score(
     }
     if admission.has_derivatives_metric_delta {
         push_component(
-            &mut components,
+            components,
             "metric_delta_present",
             policy.weight("metric_delta_present"),
             "metric evidence includes delta_pct",
         );
     }
     push_component(
-        &mut components,
+        components,
         "confidence_band",
         policy.weight(&format!(
             "confidence_{}",
@@ -549,32 +723,46 @@ fn calculate_score(
         )),
         "packet confidence band",
     );
+}
+
+fn push_novelty_score_component(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+) {
     if packet.novelty_score >= 0.7 {
         push_component(
-            &mut components,
+            components,
             "novelty_high",
             policy.weight("novelty_high"),
             "novelty score >= 0.7",
         );
     } else if packet.novelty_score >= 0.4 {
         push_component(
-            &mut components,
+            components,
             "novelty_medium",
             policy.weight("novelty_medium"),
             "novelty score >= 0.4",
         );
     }
+}
+
+fn push_contradiction_score_components(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+) {
     for flag in &packet.contradiction_flags {
         if is_medium_contradiction(flag) {
             push_component(
-                &mut components,
+                components,
                 "contradiction_medium_penalty",
                 policy.weight("contradiction_medium_penalty"),
                 "medium contradiction flag",
             );
         } else {
             push_component(
-                &mut components,
+                components,
                 "contradiction_low_penalty",
                 policy.weight("contradiction_low_penalty"),
                 "low contradiction flag",
@@ -582,16 +770,23 @@ fn calculate_score(
         }
         if matches!(flag, ContradictionFlag::EvidenceWeak) {
             push_component(
-                &mut components,
+                components,
                 "legacy_evidence_weak_penalty",
                 policy.weight("legacy_evidence_weak_penalty"),
                 "legacy evidence_weak flag",
             );
         }
     }
+}
+
+fn push_penalty_score_components(
+    components: &mut Vec<ScoreComponent>,
+    policy: &ScoringPolicy,
+    admission: &AdmissionState,
+) {
     if admission.social_only {
         push_component(
-            &mut components,
+            components,
             "social_only_penalty",
             policy.weight("social_only_penalty"),
             "social-only source quality",
@@ -599,24 +794,26 @@ fn calculate_score(
     }
     if admission.stale_market_context {
         push_component(
-            &mut components,
+            components,
             "stale_event_penalty",
             policy.weight("stale_event_penalty"),
             "stale market context",
         );
     }
+}
+
+fn push_evidence_quality_score_components(
+    components: &mut Vec<ScoreComponent>,
+    packet: &StructuredIntelPacket,
+    policy: &ScoringPolicy,
+) {
     for reason in &packet.evidence_quality_reasons {
         push_component(
-            &mut components,
+            components,
             reason.as_policy_key(),
             policy.evidence_penalty(reason.as_policy_key()),
             "evidence quality reason",
         );
-    }
-    let final_score = components.iter().map(|component| component.value).sum();
-    ScoreBreakdown {
-        components,
-        final_score,
     }
 }
 
