@@ -89,6 +89,8 @@ The example task definition is in:
 
 ## Quality gate
 
+Sonar coverage focuses on deterministic scoring, contracts, parsing, and artifact shaping. The long-running NATS/S3 orchestration modules are verified by compile, lint, container build, and deployment smoke checks rather than unit coverage because they depend on live external services.
+
 ```bash
 cargo fmt --all --check
 cargo test --all-targets
