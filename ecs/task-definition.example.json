@@ -1,0 +1,58 @@
+{
+  "family": "nangman-crypto-intel-candidate-app",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "ARM64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::791444962214:role/REPLACE_WITH_ECS_EXECUTION_ROLE",
+  "taskRoleArn": "arn:aws:iam::791444962214:role/REPLACE_WITH_INTEL_CANDIDATE_TASK_ROLE",
+  "containerDefinitions": [
+    {
+      "name": "intel-candidate-app",
+      "image": "REPLACE_WITH_ECR_IMAGE_URI",
+      "essential": true,
+      "stopTimeout": 120,
+      "readonlyRootFilesystem": true,
+      "linuxParameters": {
+        "capabilities": {
+          "drop": ["ALL"]
+        }
+      },
+      "command": [
+        "/usr/local/bin/intel-candidate-worker",
+        "--nats-url",
+        "nats://REPLACE_WITH_S2S_NATS_HOST:4222",
+        "--input-stream",
+        "STRUCTURED_INTEL",
+        "--input-subject",
+        "structured_intel_packet.created",
+        "--input-consumer",
+        "intel-candidate",
+        "--input-s3-bucket",
+        "nangman-crypto-dev-intel-structuring-l1-962214",
+        "--output-s3-bucket",
+        "nangman-crypto-dev-intel-candidate-962214",
+        "--market-l1-s3-bucket",
+        "nangman-crypto-dev-market-ingest-l1-962214",
+        "--policy-file",
+        "/opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json"
+      ],
+      "environment": [
+        { "name": "AWS_REGION", "value": "ap-northeast-2" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/nangman-crypto/intel-candidate-app",
+          "awslogs-region": "ap-northeast-2",
+          "awslogs-create-group": "true",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

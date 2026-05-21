@@ -1,0 +1,86 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Nangman Crypto Intel Candidate NATS Contract",
+    "version": "1.0.0",
+    "description": "Candidate consumes L1 structured object pointers and publishes candidate artifact pointers. S3 remains the durable source of truth."
+  },
+  "servers": {
+    "nats": {
+      "host": "{nats_host}:{nats_port}",
+      "protocol": "nats",
+      "variables": {
+        "nats_host": { "default": "192.168.10.45" },
+        "nats_port": { "default": "4222" }
+      }
+    }
+  },
+  "channels": {
+    "structuredIntelPacketCreated": {
+      "address": "structured_intel_packet.created",
+      "messages": {
+        "structuredPointer": { "$ref": "#/components/messages/structuredPointer" }
+      }
+    },
+    "candidateEvidenceBundleCreated": {
+      "address": "intel_candidate_evidence_bundle.created",
+      "messages": {
+        "candidatePointer": { "$ref": "#/components/messages/candidatePointer" }
+      }
+    },
+    "candidateScreeningEventCreated": {
+      "address": "intel_candidate_screening_event.created",
+      "messages": {
+        "candidatePointer": { "$ref": "#/components/messages/candidatePointer" }
+      }
+    },
+    "candidateHypothesisStateCreated": {
+      "address": "intel_candidate_hypothesis_state.created",
+      "messages": {
+        "candidatePointer": { "$ref": "#/components/messages/candidatePointer" }
+      }
+    }
+  },
+  "operations": {
+    "consumeStructuredIntelPacketCreated": {
+      "action": "receive",
+      "channel": { "$ref": "#/channels/structuredIntelPacketCreated" },
+      "messages": [{ "$ref": "#/channels/structuredIntelPacketCreated/messages/structuredPointer" }]
+    },
+    "publishCandidateEvidenceBundleCreated": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/candidateEvidenceBundleCreated" },
+      "messages": [{ "$ref": "#/channels/candidateEvidenceBundleCreated/messages/candidatePointer" }]
+    },
+    "publishCandidateScreeningEventCreated": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/candidateScreeningEventCreated" },
+      "messages": [{ "$ref": "#/channels/candidateScreeningEventCreated/messages/candidatePointer" }]
+    },
+    "publishCandidateHypothesisStateCreated": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/candidateHypothesisStateCreated" },
+      "messages": [{ "$ref": "#/channels/candidateHypothesisStateCreated/messages/candidatePointer" }]
+    }
+  },
+  "components": {
+    "messages": {
+      "structuredPointer": {
+        "name": "structured_pointer_v1",
+        "contentType": "application/json",
+        "payload": { "$ref": "../schemas/upstream_structured_pointer_v1.schema.json" }
+      },
+      "candidatePointer": {
+        "name": "intel_candidate_pointer_v1",
+        "contentType": "application/json",
+        "payload": { "$ref": "../schemas/intel_candidate_pointer_v1.schema.json" }
+      }
+    }
+  },
+  "x-nangman-contract": {
+    "canonical_store": "s3",
+    "event_bus": "nats_jetstream",
+    "input_ack_rule": "ack structured input only after candidate artifacts are written, output pointers receive JetStream ack, revision index is updated, and publisher flush completes",
+    "forbidden_semantics": ["order intent", "position sizing", "live trading approval"]
+  }
+}

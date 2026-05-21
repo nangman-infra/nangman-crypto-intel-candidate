@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nangman.local/contracts/intel-candidate/intel_candidate_revision_index_v1.schema.json",
+  "title": "Intel Candidate Revision Index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packet_family_id",
+    "latest_packet_revision",
+    "latest_packet_id",
+    "latest_screening_event_id",
+    "latest_candidate_id",
+    "updated_at_ms"
+  ],
+  "properties": {
+    "schema_version": { "const": "intel_candidate_revision_index_v1" },
+    "packet_family_id": { "type": "string", "minLength": 1 },
+    "latest_packet_revision": { "type": "integer", "minimum": 0 },
+    "latest_packet_id": { "type": "string", "minLength": 1 },
+    "latest_screening_event_id": { "type": "string", "minLength": 1 },
+    "latest_candidate_id": { "type": ["string", "null"] },
+    "updated_at_ms": { "type": "integer" }
+  }
+}

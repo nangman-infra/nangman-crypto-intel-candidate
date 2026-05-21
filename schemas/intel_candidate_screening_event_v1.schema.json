@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nangman.local/contracts/intel-candidate/intel_candidate_screening_event_v1.schema.json",
+  "title": "Intel Candidate Screening Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "screening_event_id",
+    "schema_version",
+    "producer_app",
+    "created_at_ms",
+    "input_packet_id",
+    "input_packet_family_id",
+    "input_packet_revision",
+    "source_structured_packet_ids",
+    "scoring_policy_version",
+    "candidate_class",
+    "candidate_score",
+    "score_breakdown",
+    "research_eligible",
+    "quarantine",
+    "reasons",
+    "idempotency_key"
+  ],
+  "properties": {
+    "screening_event_id": { "type": "string", "minLength": 1 },
+    "schema_version": { "const": "intel_candidate_screening_event_v1" },
+    "producer_app": { "const": "intel-candidate-app" },
+    "created_at_ms": { "type": "integer" },
+    "input_packet_id": { "type": "string", "minLength": 1 },
+    "input_packet_family_id": { "type": "string", "minLength": 1 },
+    "input_packet_revision": { "type": "integer", "minimum": 0 },
+    "source_structured_packet_ids": { "type": "array", "items": { "type": "string" } },
+    "supersedes_packet_id": { "type": ["string", "null"] },
+    "supersedes_screening_event_id": { "type": ["string", "null"] },
+    "scoring_policy_version": { "type": "string", "minLength": 1 },
+    "candidate_class": { "$ref": "#/$defs/candidate_class" },
+    "candidate_score": { "type": "integer" },
+    "score_breakdown": { "$ref": "#/$defs/score_breakdown" },
+    "research_eligible": { "type": "boolean" },
+    "quarantine": { "type": "boolean" },
+    "reasons": { "type": "array", "items": { "type": "string" } },
+    "candidate_id": { "type": ["string", "null"] },
+    "idempotency_key": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "candidate_class": {
+      "type": "string",
+      "enum": [
+        "strong_candidate",
+        "research_candidate",
+        "weak_candidate",
+        "observe_only",
+        "reject",
+        "quarantine"
+      ]
+    },
+    "score_breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["components", "final_score"],
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "value", "reason"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "type": "integer" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "final_score": { "type": "integer" }
+      }
+    }
+  }
+}
