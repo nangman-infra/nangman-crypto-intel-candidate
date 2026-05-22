@@ -153,6 +153,20 @@ impl ObjectStore {
         Ok(bytes)
     }
 
+    pub async fn put_jsonl_record_or_existing<T: serde::Serialize>(
+        &self,
+        key: &str,
+        record: &T,
+    ) -> AppResult<Vec<u8>> {
+        match self.put_jsonl_record_idempotent(key, record).await {
+            Ok(bytes) => Ok(bytes),
+            Err(AppError::Validation(message)) if message.contains("idempotency conflict") => {
+                self.get_bytes(key).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn put_bytes_idempotent(
         &self,
         key: &str,

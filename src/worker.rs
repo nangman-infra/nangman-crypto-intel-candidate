@@ -422,7 +422,7 @@ impl CandidateWorker {
         if let Some(state) = &result.hypothesis_state {
             let state_bytes = self
                 .output_store
-                .put_jsonl_record_idempotent(&state.state_key, state)
+                .put_jsonl_record_or_existing(&state.state_key, state)
                 .await?;
             let state_pointer = CandidateArtifactPointer {
                 schema_version: CANDIDATE_POINTER_SCHEMA_VERSION.to_owned(),
