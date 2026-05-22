@@ -8,8 +8,8 @@
     "cpuArchitecture": "ARM64",
     "operatingSystemFamily": "LINUX"
   },
-  "executionRoleArn": "arn:aws:iam::791444962214:role/REPLACE_WITH_ECS_EXECUTION_ROLE",
-  "taskRoleArn": "arn:aws:iam::791444962214:role/REPLACE_WITH_INTEL_CANDIDATE_TASK_ROLE",
+  "executionRoleArn": "arn:aws:iam::<aws-account-id>:role/REPLACE_WITH_ECS_EXECUTION_ROLE",
+  "taskRoleArn": "arn:aws:iam::<aws-account-id>:role/REPLACE_WITH_INTEL_CANDIDATE_TASK_ROLE",
   "containerDefinitions": [
     {
       "name": "intel-candidate-app",

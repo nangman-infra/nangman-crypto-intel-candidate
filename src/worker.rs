@@ -3,8 +3,7 @@ use crate::hash::{sha256_hex, stable_id};
 use crate::model::{
     CANDIDATE_POINTER_SCHEMA_VERSION, CANDIDATE_REVISION_INDEX_SCHEMA_VERSION,
     CandidateProcessingResult, CandidateRevisionIndex, MarketFeatureDelta,
-    MarketFeatureDeltaSummary, MarketRegimeContext, STRUCTURED_PACKET_SCHEMA_VERSION,
-    STRUCTURED_POINTER_SCHEMA_VERSION, StructuredIntelPacket, SymbolUniverseSnapshot,
+    MarketFeatureDeltaSummary, MarketRegimeContext, StructuredIntelPacket, SymbolUniverseSnapshot,
 };
 use crate::nats::{
     CandidateArtifactPointer, CandidatePublisher, NatsConfig, S3ObjectPointer, StructuredPointer,
@@ -337,26 +336,19 @@ impl CandidateWorker {
         created_at_ms: i64,
     ) -> AppResult<Option<CandidateProcessingResult>> {
         let packet_bytes = self.input_store.get_bytes(key).await?;
-        let packet: StructuredIntelPacket =
+        let mut packet: StructuredIntelPacket =
             read_single_json_or_jsonl(&packet_bytes, Path::new(key))?;
-        let pointer = StructuredPointer {
-            schema_version: STRUCTURED_POINTER_SCHEMA_VERSION.to_owned(),
-            packet_id: packet.packet_id.clone(),
-            raw_event_id: packet.raw_event_id.clone(),
-            terminal_decision: serde_json::Value::String(packet.terminal_decision.clone()),
-            storage_ref: S3ObjectPointer {
-                bucket: self.input_store.bucket().to_owned(),
-                key: key.to_owned(),
-                content_sha256: sha256_prefixed(&packet_bytes),
-                schema_version: packet
-                    .schema_version
-                    .clone()
-                    .unwrap_or_else(|| STRUCTURED_PACKET_SCHEMA_VERSION.to_owned()),
-            },
-            manifest_key: format!("replay-input/{}", path_segment(key)),
-            created_at_ms: packet.structured_at_ms.unwrap_or(created_at_ms),
-        };
-        self.process_pointer(&pointer, created_at_ms).await
+        if packet.raw_event_id.trim().is_empty() {
+            packet.raw_event_id = repair_raw_event_id(&packet, key);
+        }
+        if self.is_stale_revision(&packet).await? {
+            return Ok(None);
+        }
+        let result = self.score_packet(packet.clone(), created_at_ms).await?;
+        self.write_and_publish_result(&result).await?;
+        self.write_revision_index(&packet, &result, created_at_ms)
+            .await?;
+        Ok(Some(result))
     }
 
     pub async fn list_replay_input_keys(
@@ -505,7 +497,9 @@ impl CandidateWorker {
         else {
             return Ok(false);
         };
-        Ok(packet.revision < index.latest_packet_revision)
+        Ok(packet.revision < index.latest_packet_revision
+            || (packet.revision == index.latest_packet_revision
+                && packet.packet_id == index.latest_packet_id))
     }
 
     async fn write_revision_index(
@@ -629,6 +623,19 @@ fn market_feature_deltas_satisfy_packet(
                 && (delta.change_pct_1h.is_some() || delta.change_pct_15m.is_some())
         })
     })
+}
+
+fn repair_raw_event_id(packet: &StructuredIntelPacket, key: &str) -> String {
+    path_value(key, "raw_event_id")
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| packet.packet_id.clone())
+}
+
+fn path_value(key: &str, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    key.split('/')
+        .find_map(|segment| segment.strip_prefix(&prefix))
+        .map(ToOwned::to_owned)
 }
 
 fn canonical_symbol_candidates(symbol: &str) -> BTreeSet<String> {
@@ -774,6 +781,7 @@ fn positive_usize_arg(value: Option<String>, name: &str) -> AppResult<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{STRUCTURED_PACKET_SCHEMA_VERSION, STRUCTURED_POINTER_SCHEMA_VERSION};
     use serde_json::json;
 
     #[test]
@@ -823,6 +831,27 @@ mod tests {
 "#;
         let value: serde_json::Value = read_single_json_or_jsonl(jsonl, Path::new("x")).unwrap();
         assert_eq!(value["value"], 2);
+    }
+
+    #[test]
+    fn repair_s3_key_recovers_raw_event_id_from_partition() {
+        let mut packet = packet_for_test();
+        packet.raw_event_id.clear();
+        let key = "structured-intel-packet/schema=structured_intel_packet_v1/dt=2026-05-22/hour=04/raw_event_id=intel_evt_abc/packet_id=intel_pkt_123/part-000001.jsonl";
+        assert_eq!(repair_raw_event_id(&packet, key), "intel_evt_abc");
+    }
+
+    #[test]
+    fn repair_s3_key_falls_back_to_packet_id_when_raw_event_id_is_missing() {
+        let mut packet = packet_for_test();
+        packet.raw_event_id.clear();
+        assert_eq!(
+            repair_raw_event_id(
+                &packet,
+                "structured-intel-packet/schema=structured_intel_packet_v1/x.jsonl"
+            ),
+            packet.packet_id
+        );
     }
 
     #[test]
@@ -944,5 +973,17 @@ mod tests {
             &packet,
             &[valid_delta]
         ));
+    }
+
+    fn packet_for_test() -> StructuredIntelPacket {
+        serde_json::from_value(json!({
+            "packet_id": "packet_001",
+            "packet_family_id": "family_001",
+            "raw_event_id": "raw_001",
+            "cluster_id": "cluster_001",
+            "source_event_ids": ["raw_001"],
+            "schema_version": STRUCTURED_PACKET_SCHEMA_VERSION
+        }))
+        .expect("valid packet")
     }
 }
