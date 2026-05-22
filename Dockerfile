@@ -5,14 +5,15 @@ ARG TARGETARCH
 WORKDIR /opt/nangman-crypto/intel-candidate
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates gcc-aarch64-linux-gnu pkg-config \
+    && apt-get install -y --no-install-recommends ca-certificates gcc-aarch64-linux-gnu libc6-dev-arm64-cross pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /opt/nangman-crypto/intel-candidate
 
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 
-RUN case "${TARGETARCH}" in \
+RUN set -e; \
+    case "${TARGETARCH}" in \
         arm64) \
             rustup target add aarch64-unknown-linux-gnu; \
             cargo build --release --target aarch64-unknown-linux-gnu; \
