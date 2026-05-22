@@ -297,11 +297,11 @@ impl CandidateWorker {
             .as_ref()
             .and_then(|reference| reference.symbol_universe_snapshot_key.as_deref())
         {
-            Some(key) if !key.trim().is_empty() => Some(
-                self.market_store
-                    .get_json::<SymbolUniverseSnapshot>(key)
-                    .await?,
-            ),
+            Some(key) if !key.trim().is_empty() => self
+                .market_store
+                .get_json::<SymbolUniverseSnapshot>(key)
+                .await
+                .ok(),
             _ => None,
         };
         let market_feature_deltas = self.read_market_feature_deltas(&packet).await?;
@@ -310,11 +310,11 @@ impl CandidateWorker {
             .as_ref()
             .and_then(|reference| reference.market_regime_context_key.as_deref())
         {
-            Some(key) if !key.trim().is_empty() => {
-                self.market_store
-                    .get_json::<Vec<MarketRegimeContext>>(key)
-                    .await?
-            }
+            Some(key) if !key.trim().is_empty() => self
+                .market_store
+                .get_json::<Vec<MarketRegimeContext>>(key)
+                .await
+                .unwrap_or_default(),
             _ => Vec::new(),
         };
         let result = process_packet_with_artifacts(
@@ -372,7 +372,7 @@ impl CandidateWorker {
         );
         let screening_bytes = self
             .output_store
-            .put_jsonl_record_idempotent(&screening_key, &result.screening_event)
+            .put_jsonl_record_or_existing(&screening_key, &result.screening_event)
             .await?;
         let screening_pointer = CandidateArtifactPointer {
             schema_version: CANDIDATE_POINTER_SCHEMA_VERSION.to_owned(),
@@ -399,7 +399,7 @@ impl CandidateWorker {
         if let Some(bundle) = &result.evidence_bundle {
             let bundle_bytes = self
                 .output_store
-                .put_jsonl_record_idempotent(&bundle.bundle_key, bundle)
+                .put_jsonl_record_or_existing(&bundle.bundle_key, bundle)
                 .await?;
             let bundle_pointer = CandidateArtifactPointer {
                 schema_version: CANDIDATE_POINTER_SCHEMA_VERSION.to_owned(),
@@ -465,7 +465,11 @@ impl CandidateWorker {
             let summary = self
                 .market_store
                 .get_json::<MarketFeatureDeltaSummary>(key)
-                .await?;
+                .await
+                .ok();
+            let Some(summary) = summary else {
+                return Ok(Vec::new());
+            };
             let summary_deltas = expand_market_feature_delta_summary(summary);
             if market_feature_deltas_satisfy_packet(packet, &summary_deltas) {
                 return Ok(summary_deltas);
@@ -474,7 +478,8 @@ impl CandidateWorker {
                 let detail_deltas = self
                     .market_store
                     .get_json::<Vec<MarketFeatureDelta>>(detail_key)
-                    .await?;
+                    .await
+                    .unwrap_or_default();
                 if !detail_deltas.is_empty() {
                     return Ok(detail_deltas);
                 }
@@ -482,10 +487,11 @@ impl CandidateWorker {
             return Ok(summary_deltas);
         }
         if let Some(key) = detail_key {
-            return self
+            return Ok(self
                 .market_store
                 .get_json::<Vec<MarketFeatureDelta>>(key)
-                .await;
+                .await
+                .unwrap_or_default());
         }
         Ok(Vec::new())
     }
