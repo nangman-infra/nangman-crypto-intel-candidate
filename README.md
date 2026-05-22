@@ -27,9 +27,9 @@ The agent continuously consumes live structured intel pointers and, when configu
 ```bash
 intel-candidate-agent \
   --nats-url nats://REPLACE_WITH_S2S_NATS_HOST:4222 \
-  --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
-  --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
-  --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
+  --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-<account-suffix> \
+  --output-s3-bucket nangman-crypto-dev-intel-candidate-<account-suffix> \
+  --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-<account-suffix> \
   --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json \
   --repair-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/ \
   --repair-interval-secs 3600 \
@@ -79,7 +79,7 @@ intel-candidate-replay-worker --help
 
 ## Deployment defaults
 
-Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://192.168.10.45:4222`, with security groups/firewall rules limited to the required producers and consumers.
+Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://<private-nats-host>:4222`, with security groups/firewall rules limited to the required producers and consumers.
 
 The example task definition is in:
 

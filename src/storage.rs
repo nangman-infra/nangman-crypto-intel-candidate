@@ -260,6 +260,11 @@ fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
     if config.bucket.trim().is_empty() {
         return Err(AppError::config("object store bucket is required"));
     }
+    if config.bucket.contains('<') || config.bucket.contains('>') {
+        return Err(AppError::config(
+            "object store bucket must be a real bucket name, not a public-doc placeholder",
+        ));
+    }
     if config.region.trim().is_empty() {
         return Err(AppError::config("object store region is required"));
     }
@@ -299,5 +304,20 @@ mod tests {
             secret_access_key: None,
         };
         assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn rejects_public_doc_bucket_placeholder() {
+        let config = ObjectStoreConfig {
+            endpoint: None,
+            bucket: "nangman-crypto-dev-intel-candidate-<account-suffix>".to_owned(),
+            region: "ap-northeast-2".to_owned(),
+            force_path_style: false,
+            profile: None,
+            access_key_id: None,
+            secret_access_key: None,
+        };
+        let err = validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("public-doc placeholder"));
     }
 }

@@ -10,7 +10,7 @@
       "host": "{nats_host}:{nats_port}",
       "protocol": "nats",
       "variables": {
-        "nats_host": { "default": "192.168.10.45" },
+        "nats_host": { "default": "<private-nats-host>" },
         "nats_port": { "default": "4222" }
       }
     }

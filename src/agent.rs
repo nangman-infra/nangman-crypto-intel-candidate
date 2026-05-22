@@ -172,9 +172,9 @@ pub fn agent_help() -> String {
 Usage:
   intel-candidate-agent \
     --nats-url nats://REPLACE_WITH_S2S_NATS_HOST:4222 \
-    --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
-    --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
-    --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
+    --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-<account-suffix> \
+    --output-s3-bucket nangman-crypto-dev-intel-candidate-<account-suffix> \
+    --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-<account-suffix> \
     --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json \
     --repair-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/
 
@@ -346,6 +346,12 @@ mod tests {
             [
                 "--nats-url",
                 "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
                 "--repair-input-prefix",
                 "structured-intel-packet/schema=structured_intel_packet_v1/",
                 "--repair-interval-secs",
@@ -371,9 +377,19 @@ mod tests {
     #[test]
     fn parse_disable_repair() {
         let args = AgentArgs::parse(
-            ["--nats-url", "nats://127.0.0.1:4222", "--disable-repair"]
-                .into_iter()
-                .map(str::to_owned),
+            [
+                "--nats-url",
+                "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+                "--disable-repair",
+            ]
+            .into_iter()
+            .map(str::to_owned),
         )
         .expect("args parse")
         .expect("args present");

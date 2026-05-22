@@ -19,9 +19,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_AWS_REGION: &str = "ap-northeast-2";
-pub const DEFAULT_INPUT_BUCKET: &str = "nangman-crypto-dev-intel-structuring-l1-962214";
-pub const DEFAULT_OUTPUT_BUCKET: &str = "nangman-crypto-dev-intel-candidate-962214";
-pub const DEFAULT_MARKET_L1_BUCKET: &str = "nangman-crypto-dev-market-ingest-l1-962214";
+pub const DEFAULT_INPUT_BUCKET: &str = "nangman-crypto-dev-intel-structuring-l1-<account-suffix>";
+pub const DEFAULT_OUTPUT_BUCKET: &str = "nangman-crypto-dev-intel-candidate-<account-suffix>";
+pub const DEFAULT_MARKET_L1_BUCKET: &str = "nangman-crypto-dev-market-ingest-l1-<account-suffix>";
 pub const DEFAULT_INPUT_STREAM: &str = "STRUCTURED_INTEL";
 pub const DEFAULT_INPUT_SUBJECT: &str = "structured_intel_packet.created";
 pub const DEFAULT_INPUT_CONSUMER: &str = "intel-candidate";
@@ -186,6 +186,9 @@ impl WorkerArgs {
         if args.nats.url.trim().is_empty() {
             return Err(AppError::config("--nats-url or NATS_URL is required"));
         }
+        validate_bucket_arg(&args.input_store.bucket, "--input-s3-bucket")?;
+        validate_bucket_arg(&args.output_store.bucket, "--output-s3-bucket")?;
+        validate_bucket_arg(&args.market_store.bucket, "--market-l1-s3-bucket")?;
         Ok(Some(args))
     }
 }
@@ -667,9 +670,9 @@ pub fn worker_help() -> &'static str {
 Usage:
   intel-candidate-worker \
     --nats-url nats://REPLACE_WITH_S2S_NATS_HOST:4222 \
-    --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-962214 \
-    --output-s3-bucket nangman-crypto-dev-intel-candidate-962214 \
-    --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-962214 \
+    --input-s3-bucket nangman-crypto-dev-intel-structuring-l1-<account-suffix> \
+    --output-s3-bucket nangman-crypto-dev-intel-candidate-<account-suffix> \
+    --market-l1-s3-bucket nangman-crypto-dev-market-ingest-l1-<account-suffix> \
     --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json
 
 The worker reads structured_intel_packet.created pointers, writes screening events
@@ -731,6 +734,18 @@ fn next_string(
         return Err(AppError::config(message));
     }
     Ok(value)
+}
+
+fn validate_bucket_arg(value: &str, name: &str) -> AppResult<()> {
+    if value.trim().is_empty() {
+        return Err(AppError::config(format!("{name} requires a bucket")));
+    }
+    if value.contains('<') || value.contains('>') {
+        return Err(AppError::config(format!(
+            "{name} must be a real bucket name, not a public-doc placeholder"
+        )));
+    }
+    Ok(())
 }
 
 fn absolute_path_arg(value: Option<String>, message: &str) -> AppResult<PathBuf> {
@@ -805,9 +820,18 @@ mod tests {
     #[test]
     fn parses_required_nats_url() {
         let args = WorkerArgs::parse(
-            ["--nats-url", "nats://127.0.0.1:4222"]
-                .into_iter()
-                .map(str::to_owned),
+            [
+                "--nats-url",
+                "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+            ]
+            .into_iter()
+            .map(str::to_owned),
         )
         .unwrap()
         .unwrap();
@@ -819,11 +843,46 @@ mod tests {
         unsafe {
             std::env::set_var("NATS_URL", "nats://127.0.0.1:4222");
         }
-        let args = WorkerArgs::parse(std::iter::empty()).unwrap().unwrap();
+        let args = WorkerArgs::parse(
+            [
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(args.nats.url, "nats://127.0.0.1:4222");
         unsafe {
             std::env::remove_var("NATS_URL");
         }
+    }
+
+    #[test]
+    fn rejects_public_doc_bucket_placeholder() {
+        let err = WorkerArgs::parse(
+            [
+                "--nats-url",
+                "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                DEFAULT_INPUT_BUCKET,
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("--input-s3-bucket"));
+        assert!(err.to_string().contains("public-doc placeholder"));
     }
 
     #[test]
