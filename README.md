@@ -98,11 +98,26 @@ Inputs are local JSON or JSONL files, or absolute directories containing `.json`
 and `.jsonl` files. This command is still local-only and keeps dispatcher,
 shadow, paper, and live gates closed.
 
+To materialize those local inputs from the currently deployed ECS candidate
+agent, use the read-only export helper. It reads the task definition to discover
+the configured input/output buckets, downloads only the selected UTC `dt`
+prefixes into an absolute local directory, and writes a manifest with bucket
+names redacted. It does not write S3, start ECS tasks, change dispatcher mode,
+or create shadow/paper/live artifacts.
+
 ```bash
-INTEL_CANDIDATE_STRUCTURED_PACKET_PATHS=/tmp/nangman-crypto/intel-candidate/structured-packets \
-INTEL_CANDIDATE_SCREENING_EVENT_PATHS=/tmp/nangman-crypto/intel-candidate/screening-events \
-INTEL_CANDIDATE_HYPOTHESIS_STATE_PATHS=/tmp/nangman-crypto/intel-candidate/hypothesis-states \
-INTEL_CANDIDATE_EVIDENCE_BUNDLE_PATHS=/tmp/nangman-crypto/intel-candidate/evidence-bundles \
+INTEL_CANDIDATE_ECS_CLUSTER=<ecs-cluster> \
+INTEL_CANDIDATE_ECS_SERVICE=<ecs-service> \
+INTEL_CANDIDATE_SOURCE_GAP_DT=2026-05-23 \
+scripts/export-source-gap-inputs-from-ecs.sh \
+  /tmp/nangman-crypto/intel-candidate/source-gap-inputs/2026-05-23
+```
+
+```bash
+INTEL_CANDIDATE_STRUCTURED_PACKET_PATHS=/tmp/nangman-crypto/intel-candidate/source-gap-inputs/2026-05-23/structured \
+INTEL_CANDIDATE_SCREENING_EVENT_PATHS=/tmp/nangman-crypto/intel-candidate/source-gap-inputs/2026-05-23/screening \
+INTEL_CANDIDATE_HYPOTHESIS_STATE_PATHS=/tmp/nangman-crypto/intel-candidate/source-gap-inputs/2026-05-23/hypothesis \
+INTEL_CANDIDATE_EVIDENCE_BUNDLE_PATHS=/tmp/nangman-crypto/intel-candidate/source-gap-inputs/2026-05-23/evidence \
 scripts/diagnose-candidate-source-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-coverage-gap-diagnosis.json \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json
