@@ -92,6 +92,22 @@ scripts/diagnose-candidate-coverage-gaps.sh \
   > /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-coverage-gap-diagnosis.json
 ```
 
+Then use the candidate source gap diagnosis to split the missing approved
+symbols into source/structuring gaps versus candidate screening rejection gaps.
+Inputs are local JSON or JSONL files, or absolute directories containing `.json`
+and `.jsonl` files. This command is still local-only and keeps dispatcher,
+shadow, paper, and live gates closed.
+
+```bash
+INTEL_CANDIDATE_STRUCTURED_PACKET_PATHS=/tmp/nangman-crypto/intel-candidate/structured-packets \
+INTEL_CANDIDATE_SCREENING_EVENT_PATHS=/tmp/nangman-crypto/intel-candidate/screening-events \
+INTEL_CANDIDATE_HYPOTHESIS_STATE_PATHS=/tmp/nangman-crypto/intel-candidate/hypothesis-states \
+INTEL_CANDIDATE_EVIDENCE_BUNDLE_PATHS=/tmp/nangman-crypto/intel-candidate/evidence-bundles \
+scripts/diagnose-candidate-source-gaps.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-coverage-gap-diagnosis.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json
+```
+
 ## Deployment defaults
 
 Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://<private-nats-host>:4222`, with security groups/firewall rules limited to the required producers and consumers.
