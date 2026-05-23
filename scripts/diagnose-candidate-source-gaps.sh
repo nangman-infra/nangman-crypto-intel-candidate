@@ -217,7 +217,7 @@ jq -n \
     def symbolized($records; $structured_records):
       [
         $records[] as $record
-        | (record_symbols as $direct_symbols
+        | (($record | record_symbols) as $direct_symbols
           | if ($direct_symbols | length) > 0 then $direct_symbols
             else [
               $structured_records[]
