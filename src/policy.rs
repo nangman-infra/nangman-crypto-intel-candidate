@@ -6,6 +6,8 @@ use std::path::Path;
 pub const DEFAULT_POLICY_PATH: &str =
     "/opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json";
 
+const RESEARCH_COMPATIBLE_HORIZONS: &[&str] = &["15m", "1h", "4h", "24h", "72h"];
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ScoringPolicy {
     pub policy_version: String,
@@ -104,7 +106,28 @@ pub struct ValidationRequirementDefaults {
 
 pub fn load_policy(path: &Path) -> AppResult<ScoringPolicy> {
     let bytes = std::fs::read(path)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    let policy = serde_json::from_slice(&bytes)?;
+    validate_policy(&policy)?;
+    Ok(policy)
+}
+
+fn validate_policy(policy: &ScoringPolicy) -> AppResult<()> {
+    for (event_type, horizons) in &policy.event_type_to_allowed_horizons {
+        if horizons.is_empty() {
+            return Err(crate::error::AppError::config(format!(
+                "event_type_to_allowed_horizons.{event_type} must not be empty"
+            )));
+        }
+        for horizon in horizons {
+            if !RESEARCH_COMPATIBLE_HORIZONS.contains(&horizon.as_str()) {
+                return Err(crate::error::AppError::config(format!(
+                    "event_type_to_allowed_horizons.{event_type} contains unsupported downstream research horizon {horizon}; allowed horizons are {}",
+                    RESEARCH_COMPATIBLE_HORIZONS.join(",")
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl ScoringPolicy {
@@ -117,5 +140,46 @@ impl ScoringPolicy {
             .get(key)
             .copied()
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repo_policy() -> ScoringPolicy {
+        load_policy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("policies/scoring-policy.v1.json"))
+            .expect("repo policy must load")
+    }
+
+    #[test]
+    fn packaged_policy_only_uses_research_compatible_horizons() {
+        let policy = repo_policy();
+
+        for horizons in policy.event_type_to_allowed_horizons.values() {
+            assert!(!horizons.is_empty());
+            for horizon in horizons {
+                assert!(
+                    RESEARCH_COMPATIBLE_HORIZONS.contains(&horizon.as_str()),
+                    "{horizon} must be accepted by downstream research"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn policy_validation_rejects_horizon_beyond_research_contract() {
+        let mut policy = repo_policy();
+        policy
+            .event_type_to_allowed_horizons
+            .insert("project_notice".to_owned(), vec!["7d".to_owned()]);
+
+        let error = validate_policy(&policy).expect_err("7d should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported downstream research horizon 7d")
+        );
     }
 }

@@ -116,3 +116,20 @@ fn contract_and_runtime_do_not_reintroduce_legacy_pointer_schema() {
         );
     }
 }
+
+#[test]
+fn candidate_bundle_schema_rejects_horizons_beyond_research_contract() {
+    let schema = read_json("schemas/intel_candidate_evidence_bundle_v1.schema.json");
+    let allowed_horizons = schema["properties"]["allowed_horizons"]["items"]["enum"]
+        .as_array()
+        .expect("allowed_horizons enum is present");
+
+    assert!(allowed_horizons.iter().any(|value| value == "1h"));
+    assert!(allowed_horizons.iter().any(|value| value == "4h"));
+    assert!(allowed_horizons.iter().any(|value| value == "24h"));
+    assert!(allowed_horizons.iter().any(|value| value == "72h"));
+    assert!(
+        !allowed_horizons.iter().any(|value| value == "7d"),
+        "7d exceeds the downstream research absolute holding horizon"
+    );
+}

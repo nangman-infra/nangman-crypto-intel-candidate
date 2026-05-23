@@ -79,7 +79,10 @@
     "approved_universe_symbol": { "type": "boolean" },
     "event_types": { "type": "array", "items": { "type": "string" } },
     "hypothesis_type": { "type": "string", "minLength": 1 },
-    "allowed_horizons": { "type": "array", "items": { "type": "string" } },
+    "allowed_horizons": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["15m", "1h", "4h", "24h", "72h"] }
+    },
     "source_story_cluster_ids": { "type": "array", "items": { "type": "string" } },
     "source_structured_packet_ids": { "type": "array", "items": { "type": "string" } },
     "source_context_flag_packet_ids": { "type": "array", "items": { "type": "string" } },

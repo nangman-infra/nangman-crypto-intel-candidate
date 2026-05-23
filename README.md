@@ -108,6 +108,11 @@ scripts/diagnose-candidate-source-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json
 ```
 
+Research-bound evidence bundles only emit horizons that downstream `research-app`
+can admit under its intraday holding contract: `15m`, `1h`, `4h`, `24h`, or
+`72h`. Longer horizons such as `7d` stay outside candidate output until the
+research holding policy is explicitly widened.
+
 ## Deployment defaults
 
 Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://<private-nats-host>:4222`, with security groups/firewall rules limited to the required producers and consumers.
