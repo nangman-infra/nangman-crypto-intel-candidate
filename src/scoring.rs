@@ -587,11 +587,12 @@ fn selected_market_feature_delta_when_referenced(
         .is_some_and(|key| !key.trim().is_empty());
     has_reference
         .then(|| {
+            let metric_allowed = selected_market_feature_delta_metric_filter(packet);
             selected_market_feature_delta(
                 packet,
                 market_artifacts,
                 market_artifact_cutoff_ms,
-                |_| true,
+                |metric_name| metric_allowed(metric_name),
             )
         })
         .flatten()
@@ -1480,12 +1481,26 @@ fn selected_derivatives_market_feature_delta(
         packet,
         market_artifacts,
         market_artifact_cutoff_ms,
-        |metric_name| {
-            matches!(
-                metric_name,
-                "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
-            )
-        },
+        is_derivatives_market_metric,
+    )
+}
+
+fn selected_market_feature_delta_metric_filter(
+    packet: &StructuredIntelPacket,
+) -> impl Fn(&str) -> bool + '_ {
+    move |metric_name| {
+        if packet.event_type.is_derivatives_like() {
+            is_derivatives_market_metric(metric_name)
+        } else {
+            true
+        }
+    }
+}
+
+fn is_derivatives_market_metric(metric_name: &str) -> bool {
+    matches!(
+        metric_name,
+        "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
     )
 }
 
@@ -2358,7 +2373,14 @@ mod tests {
             CandidateClass::ResearchCandidate
         );
         assert!(result.screening_event.research_eligible);
-        assert!(result.evidence_bundle.is_some());
+        let bundle = result
+            .evidence_bundle
+            .as_ref()
+            .expect("bundle should exist");
+        assert!(bundle.selected_market_artifacts.iter().any(|artifact| {
+            artifact.artifact_type == "market_feature_delta_summary"
+                && artifact.metric_name.as_deref() == Some("open_interest")
+        }));
         assert!(
             !result
                 .screening_event
