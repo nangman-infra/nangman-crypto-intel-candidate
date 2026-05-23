@@ -155,8 +155,7 @@ jq -n \
     def canonical_symbol:
       (tostring | ascii_upcase | gsub("[^A-Z0-9]"; "")) as $symbol
       | if (($symbol | length) > 4 and ($symbol | endswith("USDT"))) then $symbol[0:-4]
-        elif (($symbol | length) > 4 and ($symbol | endswith("USDC"))) then $symbol[0:-4]
-        elif (($symbol | length) > 3 and ($symbol | endswith("USD"))) then $symbol[0:-3]
+        elif (($symbol | length) > 6 and ($symbol | endswith("USDC"))) then $symbol[0:-4]
         else $symbol
         end;
 
