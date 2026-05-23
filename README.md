@@ -77,6 +77,21 @@ intel-candidate-worker --help
 intel-candidate-replay-worker --help
 ```
 
+Use the candidate coverage gap diagnosis when `research-app` reports
+`candidate_generation_coverage`. It reads a local
+`research_horizon_status_checkpoint_v1` file and separates approved major-50
+symbols that still have no candidate from candidates that have not reached
+research replay or promotion. It does not write S3, start ECS, switch dispatcher
+mode, or create shadow/paper/live artifacts.
+
+```bash
+cd /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app
+
+scripts/diagnose-candidate-coverage-gaps.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/retest-horizon-status.json \
+  > /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-coverage-gap-diagnosis.json
+```
+
 ## Deployment defaults
 
 Use ARM64 Fargate with `FARGATE_SPOT` as the preferred capacity provider. The task should connect to on-prem NATS through VPN or private routing, for example `nats://<private-nats-host>:4222`, with security groups/firewall rules limited to the required producers and consumers.
