@@ -205,6 +205,29 @@ jq -n \
     def candidate_class:
       (.candidate_class? // .current_state? // .candidate_state? // "unknown" | tostring);
 
+    def reason_group:
+      if . == "missing_market_feature_delta"
+        or . == "derivatives_metric_delta_missing"
+      then "market_context_materialization"
+      elif . == "missing_market_regime_context"
+        or . == "missing_data_quality_summary"
+        or . == "market_context_not_research_admissible"
+      then "market_context_materialization"
+      elif . == "missing_point_in_time_universe"
+        or . == "not_admitted_universe"
+      then "point_in_time_universe_admission"
+      elif . == "weak_symbol_resolution"
+        or . == "missing_symbol_resolution_trace"
+      then "symbol_resolution"
+      elif . == "missing_evidence"
+      then "evidence_quality"
+      elif . == "missing_source_independence"
+        or . == "insufficient_source_independence"
+        or . == "single_source_only"
+      then "source_independence"
+      else "other"
+      end;
+
     def histogram($values; $key_name):
       reduce $values[] as $value ({};
         .[$value] = (.[$value] // 0) + 1
@@ -212,6 +235,28 @@ jq -n \
       | to_entries
       | sort_by([-.value, .key])
       | map({($key_name): .key, count: .value});
+
+    def primary_blocker($status; $groups):
+      if $status == "no_structured_intel_seen"
+      then "structured_intel_absent"
+      elif $status == "structured_intel_without_screening"
+      then "candidate_worker_input_gap"
+      elif $status == "candidate_evidence_present_not_in_research_gap"
+      then "research_manifest_reconciliation"
+      elif any($groups[]?; .blocker_group == "market_context_materialization")
+      then "market_context_materialization"
+      elif any($groups[]?; .blocker_group == "point_in_time_universe_admission")
+      then "point_in_time_universe_admission"
+      elif any($groups[]?; .blocker_group == "symbol_resolution")
+      then "symbol_resolution"
+      elif any($groups[]?; .blocker_group == "evidence_quality")
+      then "evidence_quality"
+      elif any($groups[]?; .blocker_group == "source_independence")
+      then "source_independence"
+      elif $status == "screened_without_research_candidate"
+      then "unclassified_screening_gap"
+      else "no_candidate_gap_detected"
+      end;
 
     def symbolized($records; $structured_records):
       [
@@ -258,15 +303,18 @@ jq -n \
             ($hypothesis_matches[] | candidate_class),
             ($evidence_matches[] | candidate_class)
           ] | map(select(length > 0))) as $class_values
+        | (
+            if ($evidence_matches | length) > 0 then "candidate_evidence_present_not_in_research_gap"
+            elif (($screening_matches | length) > 0) or (($hypothesis_matches | length) > 0) then "screened_without_research_candidate"
+            elif ($structured_matches | length) > 0 then "structured_intel_without_screening"
+            else "no_structured_intel_seen"
+            end
+          ) as $status
+        | (histogram(($reason_values | map(reason_group)); "blocker_group")) as $blocker_groups
         | {
             symbol:$symbol,
-            status:(
-              if ($evidence_matches | length) > 0 then "candidate_evidence_present_not_in_research_gap"
-              elif (($screening_matches | length) > 0) or (($hypothesis_matches | length) > 0) then "screened_without_research_candidate"
-              elif ($structured_matches | length) > 0 then "structured_intel_without_screening"
-              else "no_structured_intel_seen"
-              end
-            ),
+            status:$status,
+            primary_blocker:primary_blocker($status; $blocker_groups),
             counts:{
               structured_packets:($structured_matches | length),
               screening_events:($screening_matches | length),
@@ -274,6 +322,7 @@ jq -n \
               evidence_bundles:($evidence_matches | length)
             },
             candidate_classes:histogram($class_values; "candidate_class"),
+            blocker_groups:$blocker_groups,
             rejection_reasons:histogram($reason_values; "reason"),
             sample_packet_ids:(
               [
@@ -290,6 +339,7 @@ jq -n \
           }
       ] as $symbol_diagnostics
     | (histogram(($symbol_diagnostics | map(.status)); "status")) as $status_counts
+    | (histogram(($symbol_diagnostics | map(.primary_blocker)); "primary_blocker")) as $primary_blocker_counts
     | (histogram(([
         $symbol_diagnostics[]
         | .rejection_reasons[]?
@@ -297,6 +347,13 @@ jq -n \
         | range(0; $entry.count)
         | $entry.reason
       ]); "reason")) as $global_reasons
+    | (histogram(([
+        $symbol_diagnostics[]
+        | .blocker_groups[]?
+        | . as $entry
+        | range(0; $entry.count)
+        | $entry.blocker_group
+      ]); "blocker_group")) as $global_blocker_groups
     | (histogram(([
         $symbol_diagnostics[]
         | .candidate_classes[]?
@@ -327,7 +384,9 @@ jq -n \
         summary:{
           approved_symbols_without_candidate:($missing_symbols | length),
           status_counts:$status_counts,
+          primary_blocker_counts:$primary_blocker_counts,
           global_candidate_classes:$global_classes,
+          global_blocker_groups:$global_blocker_groups,
           global_rejection_reasons:$global_reasons
         },
         symbols:$symbol_diagnostics,
@@ -343,6 +402,14 @@ jq -n \
             end,
             if any($symbol_diagnostics[]?; .status == "screened_without_research_candidate")
               then "inspect_scoring_rejection_reasons_before_enabling_dispatcher_run_task"
+              else empty
+            end,
+            if any($symbol_diagnostics[]?; .primary_blocker == "market_context_materialization")
+              then "repair_or_rehydrate_market_context_before_forcing_candidate_generation"
+              else empty
+            end,
+            if any($symbol_diagnostics[]?; .primary_blocker == "point_in_time_universe_admission")
+              then "inspect_point_in_time_universe_snapshot_before_widening_candidate_policy"
               else empty
             end,
             if any($symbol_diagnostics[]?; .status == "candidate_evidence_present_not_in_research_gap")
@@ -364,6 +431,7 @@ if [[ -n "$OUTPUT_FILE" ]]; then
     jq -r '
       "approved_symbols_without_candidate=\(.summary.approved_symbols_without_candidate)",
       "status_counts=\(.summary.status_counts | map("\(.status):\(.count)") | join(","))",
+      "primary_blockers=\(.summary.primary_blocker_counts | map("\(.primary_blocker):\(.count)") | join(","))",
       "top_rejection_reasons=\(.summary.global_rejection_reasons[0:5] | map("\(.reason):\(.count)") | join(","))"
     ' "$tmp_output"
   } >&2

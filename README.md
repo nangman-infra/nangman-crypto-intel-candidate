@@ -96,7 +96,10 @@ Then use the candidate source gap diagnosis to split the missing approved
 symbols into source/structuring gaps versus candidate screening rejection gaps.
 Inputs are local JSON or JSONL files, or absolute directories containing `.json`
 and `.jsonl` files. This command is still local-only and keeps dispatcher,
-shadow, paper, and live gates closed.
+shadow, paper, and live gates closed. The output includes per-symbol
+`primary_blocker` and `blocker_groups`, so operator action can separate missing
+structured intel from market-context materialization, point-in-time universe,
+symbol-resolution, and evidence-quality blockers.
 
 To materialize those local inputs from the currently deployed ECS candidate
 agent, use the read-only export helper. It reads the task definition to discover
