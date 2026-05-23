@@ -171,7 +171,7 @@ pub fn process_packet_with_artifacts(
     created_at_ms: i64,
 ) -> CandidateProcessingResult {
     let universe = market_artifacts.universe;
-    let admission = evaluate_admission(&packet, policy, market_artifacts);
+    let admission = evaluate_admission(&packet, policy, market_artifacts, created_at_ms);
     let score = calculate_score(&packet, policy, universe, &admission);
     let mut reasons = Vec::new();
     reasons.extend(admission.quarantine_reasons.clone());
@@ -283,8 +283,10 @@ fn evaluate_admission(
     packet: &StructuredIntelPacket,
     policy: &ScoringPolicy,
     market_artifacts: MarketArtifactInputs<'_>,
+    candidate_created_at_ms: i64,
 ) -> AdmissionState {
-    let signals = build_admission_signals(packet, policy, market_artifacts);
+    let signals =
+        build_admission_signals(packet, policy, market_artifacts, candidate_created_at_ms);
     let quarantine_reasons = collect_quarantine_reasons(policy, &signals);
     let reject_reasons = collect_reject_reasons(policy, &signals);
     let observe_reasons = collect_observe_reasons(packet, policy, &signals);
@@ -326,8 +328,10 @@ fn build_admission_signals(
     packet: &StructuredIntelPacket,
     policy: &ScoringPolicy,
     market_artifacts: MarketArtifactInputs<'_>,
+    candidate_created_at_ms: i64,
 ) -> AdmissionSignals {
     let universe = market_artifacts.universe;
+    let market_artifact_cutoff_ms = market_artifact_cutoff_ms(packet, candidate_created_at_ms);
     let has_valid_schema =
         packet.schema_version.as_deref() == Some(STRUCTURED_PACKET_SCHEMA_VERSION);
     let forbidden_output_terms = forbidden_generated_terms(packet, policy);
@@ -367,16 +371,23 @@ fn build_admission_signals(
         .as_ref()
         .and_then(|reference| reference.market_data_quality_summary_key.as_ref())
         .is_some_and(|key| !key.trim().is_empty());
-    let selected_market_feature_delta =
-        selected_market_feature_delta_when_referenced(packet, market_artifacts);
-    let selected_market_regime_context =
-        selected_market_regime_context_when_referenced(packet, market_artifacts);
+    let selected_market_feature_delta = selected_market_feature_delta_when_referenced(
+        packet,
+        market_artifacts,
+        market_artifact_cutoff_ms,
+    );
+    let selected_market_regime_context = selected_market_regime_context_when_referenced(
+        packet,
+        market_artifacts,
+        market_artifact_cutoff_ms,
+    );
     let has_market_feature_delta = selected_market_feature_delta.is_some();
     let has_market_regime_context = selected_market_regime_context.is_some();
     let has_point_in_time_universe = universe.is_some();
     let approved_universe_symbol =
         universe.is_some_and(|snapshot| approved_universe_symbols(packet, snapshot));
-    let has_derivatives_metric_delta = has_derivatives_metric_delta(packet, market_artifacts);
+    let has_derivatives_metric_delta =
+        has_derivatives_metric_delta(packet, market_artifacts, market_artifact_cutoff_ms);
     let market_status = effective_market_context_status(packet);
     let market_context_allows_strong =
         market_status.as_policy_key() == policy.market_context_status_policy.strong_requires;
@@ -554,9 +565,19 @@ fn has_valid_replay_time_order(packet: &StructuredIntelPacket) -> bool {
         && decision_available_at_ms >= structured_at_ms
 }
 
+fn market_artifact_cutoff_ms(
+    packet: &StructuredIntelPacket,
+    candidate_created_at_ms: i64,
+) -> Option<i64> {
+    packet
+        .decision_available_at_ms
+        .map(|decision_available_at_ms| decision_available_at_ms.max(candidate_created_at_ms))
+}
+
 fn selected_market_feature_delta_when_referenced(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
 ) -> Option<SelectedMarketArtifactTrace> {
     let has_reference = packet
         .market_context_ref
@@ -564,13 +585,21 @@ fn selected_market_feature_delta_when_referenced(
         .and_then(market_feature_delta_artifact_key)
         .is_some_and(|key| !key.trim().is_empty());
     has_reference
-        .then(|| selected_market_feature_delta(packet, market_artifacts, |_| true))
+        .then(|| {
+            selected_market_feature_delta(
+                packet,
+                market_artifacts,
+                market_artifact_cutoff_ms,
+                |_| true,
+            )
+        })
         .flatten()
 }
 
 fn selected_market_regime_context_when_referenced(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
 ) -> Option<SelectedMarketArtifactTrace> {
     let has_reference = packet
         .market_context_ref
@@ -578,13 +607,16 @@ fn selected_market_regime_context_when_referenced(
         .and_then(|reference| reference.market_regime_context_key.as_ref())
         .is_some_and(|key| !key.trim().is_empty());
     has_reference
-        .then(|| selected_market_regime_context(packet, market_artifacts))
+        .then(|| {
+            selected_market_regime_context(packet, market_artifacts, market_artifact_cutoff_ms)
+        })
         .flatten()
 }
 
 fn has_derivatives_metric_delta(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
 ) -> bool {
     packet.metric_evidence.iter().any(|metric| {
         metric.delta_pct.is_some()
@@ -592,7 +624,12 @@ fn has_derivatives_metric_delta(
                 metric.metric_name.as_str(),
                 "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
             )
-    }) || selected_derivatives_market_feature_delta(packet, market_artifacts).is_some()
+    }) || selected_derivatives_market_feature_delta(
+        packet,
+        market_artifacts,
+        market_artifact_cutoff_ms,
+    )
+    .is_some()
 }
 
 fn calculate_score(
@@ -1402,21 +1439,28 @@ fn canonical_symbol_candidates(symbol: &str) -> BTreeSet<String> {
 fn selected_derivatives_market_feature_delta(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
 ) -> Option<SelectedMarketArtifactTrace> {
-    selected_market_feature_delta(packet, market_artifacts, |metric_name| {
-        matches!(
-            metric_name,
-            "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
-        )
-    })
+    selected_market_feature_delta(
+        packet,
+        market_artifacts,
+        market_artifact_cutoff_ms,
+        |metric_name| {
+            matches!(
+                metric_name,
+                "open_interest" | "funding_rate" | "liquidation" | "long_short_ratio"
+            )
+        },
+    )
 }
 
 fn selected_market_feature_delta(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
     metric_allowed: impl Fn(&str) -> bool,
 ) -> Option<SelectedMarketArtifactTrace> {
-    let decision_available_at_ms = packet.decision_available_at_ms?;
+    let market_artifact_cutoff_ms = market_artifact_cutoff_ms?;
     let artifact_key = packet
         .market_context_ref
         .as_ref()
@@ -1445,8 +1489,8 @@ fn selected_market_feature_delta(
                 .filter(move |delta| {
                     candidates.contains(&delta.symbol_canonical.to_ascii_uppercase())
                         && metric_allowed_ref(delta.metric_name.as_str())
-                        && delta.window_end_ms <= decision_available_at_ms
-                        && delta.known_as_of_ms <= decision_available_at_ms
+                        && delta.window_end_ms <= market_artifact_cutoff_ms
+                        && delta.known_as_of_ms <= market_artifact_cutoff_ms
                         && is_usable_market_artifact_quality(&delta.quality_status)
                         && (delta.change_pct_1h.is_some() || delta.change_pct_15m.is_some())
                 })
@@ -1483,8 +1527,9 @@ fn market_feature_delta_artifact_key(reference: &MarketContextRef) -> Option<&St
 fn selected_market_regime_context(
     packet: &StructuredIntelPacket,
     market_artifacts: MarketArtifactInputs<'_>,
+    market_artifact_cutoff_ms: Option<i64>,
 ) -> Option<SelectedMarketArtifactTrace> {
-    let decision_available_at_ms = packet.decision_available_at_ms?;
+    let market_artifact_cutoff_ms = market_artifact_cutoff_ms?;
     let artifact_key = packet
         .market_context_ref
         .as_ref()
@@ -1493,8 +1538,8 @@ fn selected_market_regime_context(
         .market_regime_contexts
         .iter()
         .filter(|context| {
-            context.window_end_ms <= decision_available_at_ms
-                && context.known_as_of_ms <= decision_available_at_ms
+            context.window_end_ms <= market_artifact_cutoff_ms
+                && context.known_as_of_ms <= market_artifact_cutoff_ms
                 && context.sector_return_same_window.is_some()
                 && is_usable_market_artifact_quality(&context.quality_status)
         })
@@ -1946,6 +1991,56 @@ mod tests {
     }
 
     #[test]
+    fn rehydrated_market_artifacts_use_candidate_time_as_admission_cutoff() {
+        let policy = policy();
+        let universe = universe(true);
+        let mut feature_delta = market_feature_delta("price");
+        feature_delta.window_end_ms = 1_900;
+        feature_delta.known_as_of_ms = 2_000;
+        let mut regime_context = market_regime_context();
+        regime_context.window_end_ms = 1_900;
+        regime_context.known_as_of_ms = 2_100;
+
+        let result = process_packet_with_artifacts(
+            packet(),
+            &policy,
+            market_artifacts(&universe, &[feature_delta], &[regime_context]),
+            7_200_000,
+        );
+
+        assert!(result.screening_event.research_eligible);
+        let bundle = result.evidence_bundle.expect("bundle should exist");
+        assert_eq!(bundle.decision_available_at_ms, 7_200_000);
+        assert!(bundle.selected_market_artifacts.iter().any(|artifact| {
+            artifact.artifact_type == "market_feature_delta_summary"
+                && artifact.known_as_of_ms == 2_000
+        }));
+        assert!(bundle.selected_market_artifacts.iter().any(|artifact| {
+            artifact.artifact_type == "market_regime_context" && artifact.known_as_of_ms == 2_100
+        }));
+    }
+
+    #[test]
+    fn future_market_artifacts_after_candidate_time_still_block_research() {
+        let policy = policy();
+        let universe = universe(true);
+        let mut feature_delta = market_feature_delta("price");
+        feature_delta.known_as_of_ms = 7_200_001;
+        let mut regime_context = market_regime_context();
+        regime_context.known_as_of_ms = 7_200_001;
+
+        let result = process_packet_with_artifacts(
+            packet(),
+            &policy,
+            market_artifacts(&universe, &[feature_delta], &[regime_context]),
+            7_200_000,
+        );
+
+        assert_blocked_with_reason(&result, "missing_market_feature_delta");
+        assert_blocked_with_reason(&result, "missing_market_regime_context");
+    }
+
+    #[test]
     fn revision_packet_carries_supersede_metadata() {
         let policy = policy();
         let universe = universe(true);
@@ -2080,11 +2175,11 @@ mod tests {
     }
 
     #[test]
-    fn future_known_market_feature_delta_blocks_research() {
+    fn market_feature_delta_known_after_candidate_time_blocks_research() {
         let policy = policy();
         let universe = universe(true);
         let mut future_delta = market_feature_delta("price");
-        future_delta.known_as_of_ms = 1_301;
+        future_delta.known_as_of_ms = 7_200_001;
         let feature_deltas = vec![future_delta];
         let regime_contexts = vec![market_regime_context()];
 
