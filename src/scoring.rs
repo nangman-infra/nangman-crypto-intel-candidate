@@ -1,12 +1,13 @@
 use crate::hash::{sha256_hex, stable_id};
 use crate::model::{
     CANDIDATE_BUNDLE_SCHEMA_VERSION, CandidateClass, CandidateProcessingResult, ConfidenceBand,
-    ContradictionFlag, DataQualitySummaryRef, EventType, HYPOTHESIS_STATE_SCHEMA_VERSION,
-    IntelCandidateEvidenceBundle, IntelCandidateHypothesisState, IntelCandidateScreeningEvent,
-    MarketContextRef, MarketContextStatus, MarketFeatureDelta, MarketRegimeContext, PRODUCER_APP,
-    SCREENING_EVENT_SCHEMA_VERSION, STRUCTURED_PACKET_SCHEMA_VERSION, ScoreBreakdown,
-    ScoreComponent, SelectedMarketArtifactTrace, SourceIndependenceSummary, StructuredIntelPacket,
-    SymbolUniverseSnapshot, ValidationRequirements,
+    ContradictionFlag, DataQualitySummaryRef, EventType, EvidenceQualityReason,
+    HYPOTHESIS_STATE_SCHEMA_VERSION, IntelCandidateEvidenceBundle, IntelCandidateHypothesisState,
+    IntelCandidateScreeningEvent, MarketContextRef, MarketContextStatus, MarketFeatureDelta,
+    MarketRegimeContext, PRODUCER_APP, SCREENING_EVENT_SCHEMA_VERSION,
+    STRUCTURED_PACKET_SCHEMA_VERSION, ScoreBreakdown, ScoreComponent, SelectedMarketArtifactTrace,
+    SourceIndependenceSummary, StructuredIntelPacket, SymbolUniverseSnapshot,
+    ValidationRequirements,
 };
 use crate::policy::{ScoringPolicy, ValidationRequirementDefaults};
 use crate::time::{hour_bucket_ms, path_segment, time_part};
@@ -643,9 +644,9 @@ fn calculate_score(
     push_market_score_components(&mut components, packet, policy, universe, admission);
     push_quality_score_components(&mut components, packet, policy, admission);
     push_novelty_score_component(&mut components, packet, policy);
-    push_contradiction_score_components(&mut components, packet, policy);
+    push_contradiction_score_components(&mut components, packet, policy, admission);
     push_penalty_score_components(&mut components, policy, admission);
-    push_evidence_quality_score_components(&mut components, packet, policy);
+    push_evidence_quality_score_components(&mut components, packet, policy, admission);
     let final_score = components.iter().map(|component| component.value).sum();
     ScoreBreakdown {
         components,
@@ -788,6 +789,7 @@ fn push_contradiction_score_components(
     components: &mut Vec<ScoreComponent>,
     packet: &StructuredIntelPacket,
     policy: &ScoringPolicy,
+    admission: &AdmissionState,
 ) {
     for flag in &packet.contradiction_flags {
         if is_medium_contradiction(flag) {
@@ -805,7 +807,9 @@ fn push_contradiction_score_components(
                 "low contradiction flag",
             );
         }
-        if matches!(flag, ContradictionFlag::EvidenceWeak) {
+        if matches!(flag, ContradictionFlag::EvidenceWeak)
+            && !derivatives_numeric_baseline_resolved(packet, admission)
+        {
             push_component(
                 components,
                 "legacy_evidence_weak_penalty",
@@ -843,8 +847,12 @@ fn push_evidence_quality_score_components(
     components: &mut Vec<ScoreComponent>,
     packet: &StructuredIntelPacket,
     policy: &ScoringPolicy,
+    admission: &AdmissionState,
 ) {
     for reason in &packet.evidence_quality_reasons {
+        if evidence_quality_penalty_resolved(reason, packet, admission) {
+            continue;
+        }
         push_component(
             components,
             reason.as_policy_key(),
@@ -852,6 +860,33 @@ fn push_evidence_quality_score_components(
             "evidence quality reason",
         );
     }
+}
+
+fn evidence_quality_penalty_resolved(
+    reason: &EvidenceQualityReason,
+    packet: &StructuredIntelPacket,
+    admission: &AdmissionState,
+) -> bool {
+    match reason {
+        EvidenceQualityReason::BaselineMissing | EvidenceQualityReason::SingleNumericSnapshot => {
+            derivatives_numeric_baseline_resolved(packet, admission)
+        }
+        EvidenceQualityReason::SingleSourceOnly => {
+            derivatives_numeric_baseline_resolved(packet, admission)
+                && packet
+                    .source_independence_summary
+                    .as_ref()
+                    .is_some_and(|summary| summary.official_source_present)
+        }
+        _ => false,
+    }
+}
+
+fn derivatives_numeric_baseline_resolved(
+    packet: &StructuredIntelPacket,
+    admission: &AdmissionState,
+) -> bool {
+    packet.event_type.is_derivatives_like() && admission.has_derivatives_metric_delta
 }
 
 fn classify_candidate(
@@ -2279,6 +2314,65 @@ mod tests {
 
         assert!(result.screening_event.research_eligible);
         assert!(result.evidence_bundle.is_some());
+    }
+
+    #[test]
+    fn official_derivatives_delta_resolves_single_snapshot_penalties() {
+        let policy = policy();
+        let universe = universe(true);
+        let feature_deltas = vec![market_feature_delta("open_interest")];
+        let regime_contexts = vec![market_regime_context()];
+        let mut input = packet();
+        input.event_type = EventType::FundingShift;
+        input.symbol_confidence_band = ConfidenceBand::Moderate;
+        input.symbol_resolution_trace[0].mapping_confidence = ConfidenceBand::Moderate;
+        input.confidence_band = ConfidenceBand::Low;
+        input.novelty_score = 0.58;
+        input.contradiction_flags = vec![ContradictionFlag::EvidenceWeak];
+        input.evidence_quality_reasons = vec![
+            EvidenceQualityReason::BaselineMissing,
+            EvidenceQualityReason::SingleNumericSnapshot,
+            EvidenceQualityReason::SingleSourceOnly,
+        ];
+        input.metric_evidence = vec![MetricEvidence {
+            metric_name: "open_interest_snapshot".to_owned(),
+            symbol: Some("SUIUSDT".to_owned()),
+            venue: Some("binance_usdm".to_owned()),
+            value: Some(98_000_000.0),
+            previous_value: None,
+            delta_pct: None,
+            window_ms: None,
+            observed_at_ms: 1_250,
+            source_event_id: "source_001".to_owned(),
+        }];
+
+        let result = process_packet_with_artifacts(
+            input,
+            &policy,
+            market_artifacts(&universe, &feature_deltas, &regime_contexts),
+            7_200_000,
+        );
+
+        assert_eq!(
+            result.screening_event.candidate_class,
+            CandidateClass::ResearchCandidate
+        );
+        assert!(result.screening_event.research_eligible);
+        assert!(result.evidence_bundle.is_some());
+        assert!(
+            !result
+                .screening_event
+                .score_breakdown
+                .components
+                .iter()
+                .any(|component| matches!(
+                    component.name.as_str(),
+                    "baseline_missing"
+                        | "single_numeric_snapshot"
+                        | "single_source_only"
+                        | "legacy_evidence_weak_penalty"
+                ))
+        );
     }
 
     #[test]
