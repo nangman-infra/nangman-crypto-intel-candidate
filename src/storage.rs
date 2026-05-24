@@ -40,15 +40,8 @@ impl ObjectStore {
         if let Some(profile) = config.profile {
             loader = loader.profile_name(profile);
         }
-        let endpoint = config.endpoint.or_else(env_s3_endpoint);
-        if let Some(endpoint) = endpoint {
-            loader = loader.endpoint_url(endpoint.trim_end_matches('/'));
-        }
         let sdk_config = loader.load().await;
-        let force_path_style = config.force_path_style
-            || env_bool("AWS_S3_FORCE_PATH_STYLE")
-            || env_bool("AWS_USE_PATH_STYLE_ENDPOINT");
-        let mut s3_builder = S3ConfigBuilder::from(&sdk_config).force_path_style(force_path_style);
+        let mut s3_builder = S3ConfigBuilder::from(&sdk_config);
         if let (Some(access_key_id), Some(secret_access_key)) =
             (config.access_key_id, config.secret_access_key)
         {
@@ -315,21 +308,6 @@ fn next_list_start_after(keys: &[String], continuation_token: Option<&str>) -> O
     continuation_token.and_then(|_| keys.last().cloned())
 }
 
-fn env_s3_endpoint() -> Option<String> {
-    env::var("AWS_ENDPOINT_URL_S3")
-        .ok()
-        .or_else(|| env::var("AWS_ENDPOINT_URL").ok())
-        .map(|value| value.trim().trim_end_matches('/').to_owned())
-        .filter(|value| !value.is_empty())
-}
-
-fn env_bool(name: &str) -> bool {
-    env::var(name)
-        .ok()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
-}
-
 fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
     if config.bucket.trim().is_empty() {
         return Err(AppError::config("object store bucket is required"));
@@ -342,11 +320,15 @@ fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
     if config.region.trim().is_empty() {
         return Err(AppError::config("object store region is required"));
     }
-    if let Some(endpoint) = &config.endpoint
-        && !endpoint.starts_with("http://")
-        && !endpoint.starts_with("https://")
-    {
-        return Err(AppError::config("object store endpoint must be http(s)"));
+    if config.endpoint.is_some() || env_s3_endpoint_is_set() {
+        return Err(AppError::config(
+            "custom S3 endpoints are unsupported; use AWS S3 with IAM",
+        ));
+    }
+    if config.force_path_style || env_path_style_is_set() {
+        return Err(AppError::config(
+            "path-style S3 endpoints are unsupported; use AWS S3 with IAM",
+        ));
     }
     if config.access_key_id.is_some() != config.secret_access_key.is_some() {
         return Err(AppError::config(
@@ -354,6 +336,27 @@ fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
         ));
     }
     Ok(())
+}
+
+fn env_s3_endpoint_is_set() -> bool {
+    env_non_empty("AWS_ENDPOINT_URL_S3") || env_non_empty("AWS_ENDPOINT_URL")
+}
+
+fn env_path_style_is_set() -> bool {
+    env_bool("AWS_S3_FORCE_PATH_STYLE") || env_bool("AWS_USE_PATH_STYLE_ENDPOINT")
+}
+
+fn env_non_empty(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn env_bool(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 fn is_precondition_failure(message: &str) -> bool {
@@ -367,9 +370,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_invalid_endpoint() {
+    fn rejects_custom_endpoint() {
         let config = ObjectStoreConfig {
-            endpoint: Some("ftp://example.com".to_owned()),
+            endpoint: Some("https://s3.example.com".to_owned()),
             bucket: "bucket".to_owned(),
             region: "ap-northeast-2".to_owned(),
             force_path_style: false,
@@ -377,7 +380,23 @@ mod tests {
             access_key_id: None,
             secret_access_key: None,
         };
-        assert!(validate_config(&config).is_err());
+        let err = validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("custom S3 endpoints"));
+    }
+
+    #[test]
+    fn rejects_path_style_endpoint_mode() {
+        let config = ObjectStoreConfig {
+            endpoint: None,
+            bucket: "bucket".to_owned(),
+            region: "ap-northeast-2".to_owned(),
+            force_path_style: true,
+            profile: None,
+            access_key_id: None,
+            secret_access_key: None,
+        };
+        let err = validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("path-style S3 endpoints"));
     }
 
     #[test]
