@@ -143,8 +143,10 @@ turn it into a local Market-L1 recovery plan before running any backfill. The
 planner emits packet-sized recovery windows with placeholder market-ingest
 arguments. It does not read or write S3, start ECS, change dispatcher mode, or
 open research/shadow/paper/live gates. Symbol mappings derived from a quote
-suffix are marked for review; pass `INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE`
-when an operator-approved mapping is available.
+suffix are marked for review; by default the planner uses
+`/Volumes/WD/Developments/nangman-crypto/apps/market-ingest-app/config/universe.major-50.toml`
+when it is available, and `INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE` can override
+that with an operator-approved JSON mapping.
 
 ```bash
 scripts/plan-market-l1-recovery-from-source-gaps.sh \

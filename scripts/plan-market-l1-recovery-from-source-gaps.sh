@@ -52,6 +52,7 @@ require_positive_integer() {
 }
 
 require_command date
+require_command awk
 require_command jq
 require_command mktemp
 require_absolute_file "INTEL_CANDIDATE_SOURCE_GAP_FILE or first argument" "$SOURCE_GAP_FILE"
@@ -67,9 +68,54 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 symbol_map_json="$tmp_dir/symbol-map.json"
+symbol_map_source="derived_quote_suffix"
 if [[ -n "$MARKET_SYMBOL_MAP_FILE" ]]; then
   require_absolute_file "INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE" "$MARKET_SYMBOL_MAP_FILE"
   cp "$MARKET_SYMBOL_MAP_FILE" "$symbol_map_json"
+  symbol_map_source="explicit_symbol_map_file"
+elif [[ -f "$MARKET_INGEST_APP_ROOT/config/universe.major-50.toml" ]]; then
+  awk '
+    function emit() {
+      if (enabled == "true" && base != "" && raw != "") {
+        print base "\t" raw
+      }
+    }
+    /^\[\[symbols\]\]/ {
+      emit()
+      base = ""
+      raw = ""
+      enabled = ""
+      next
+    }
+    /^[[:space:]]*base[[:space:]]*=/ {
+      base = $0
+      sub(/^[^"]*"/, "", base)
+      sub(/".*$/, "", base)
+      next
+    }
+    /^[[:space:]]*raw[[:space:]]*=/ {
+      raw = $0
+      sub(/^[^"]*"/, "", raw)
+      sub(/".*$/, "", raw)
+      next
+    }
+    /^[[:space:]]*enabled[[:space:]]*=/ {
+      enabled = $0
+      sub(/.*=[[:space:]]*/, "", enabled)
+      gsub(/[[:space:]]/, "", enabled)
+      next
+    }
+    END {
+      emit()
+    }
+  ' "$MARKET_INGEST_APP_ROOT/config/universe.major-50.toml" \
+    | jq -Rn '
+        reduce inputs as $line ({};
+          ($line | split("\t")) as $parts
+          | if ($parts | length) == 2 then . + {($parts[0]): $parts[1]} else . end
+        )
+      ' > "$symbol_map_json"
+  symbol_map_source="market_ingest_major50_config"
 else
   printf '{}\n' > "$symbol_map_json"
 fi
@@ -88,6 +134,7 @@ jq -n \
   --arg market_venue "$MARKET_VENUE" \
   --arg market_quote_suffix "$MARKET_QUOTE_SUFFIX" \
   --arg market_symbol_map_file "$MARKET_SYMBOL_MAP_FILE" \
+  --arg symbol_map_source "$symbol_map_source" \
   --argjson recovery_margin_ms "$RECOVERY_MARGIN_MS" \
   --slurpfile source "$SOURCE_GAP_FILE" \
   --slurpfile symbol_map "$symbol_map_json" \
@@ -112,7 +159,7 @@ jq -n \
       explicit_market_symbol($symbol) // derived_market_symbol($symbol);
 
     def mapping_status_for($symbol):
-      if explicit_market_symbol($symbol) != null then "explicit_symbol_map"
+      if explicit_market_symbol($symbol) != null then $symbol_map_source
       else "derived_quote_suffix_unverified"
       end;
 
@@ -223,7 +270,7 @@ jq -n \
             venue:$market_venue,
             market_symbol:market_symbol_for(.symbol),
             symbol_mapping_status:mapping_status_for(.symbol),
-            requires_symbol_mapping_review:(mapping_status_for(.symbol) != "explicit_symbol_map"),
+            requires_symbol_mapping_review:(mapping_status_for(.symbol) == "derived_quote_suffix_unverified"),
             recovery_window_count:($recovery_windows | length),
             recovery_windows:$recovery_windows,
             post_repair_checks:[
@@ -250,6 +297,7 @@ jq -n \
           market_symbol_map_file:(
             if ($market_symbol_map_file | length) == 0 then null else $market_symbol_map_file end
           ),
+          symbol_map_source:$symbol_map_source,
           recovery_margin_ms:$recovery_margin_ms
         },
         safety:{
