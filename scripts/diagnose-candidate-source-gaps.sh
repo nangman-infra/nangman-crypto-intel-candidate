@@ -321,6 +321,9 @@ jq -n \
       | sort_by([-.value, .key])
       | map({($key_name): .key, count: .value});
 
+    def dominant_blocker_group($groups):
+      ($groups[0].blocker_group // null);
+
     def primary_blocker($status; $groups; $market_context_gap):
       if $status == "no_structured_intel_seen"
       then "structured_intel_absent"
@@ -333,21 +336,25 @@ jq -n \
       elif (($market_context_gap.historical_backfill_required // false)
         and any($groups[]?; .blocker_group == "market_context_materialization"))
       then "historical_market_l1_backfill_required"
-      elif any($groups[]?; .blocker_group == "market_context_materialization")
-      then "market_context_materialization"
-      elif any($groups[]?; .blocker_group == "market_context_admissibility")
-      then "market_context_admissibility"
-      elif any($groups[]?; .blocker_group == "point_in_time_universe_admission")
-      then "point_in_time_universe_admission"
-      elif any($groups[]?; .blocker_group == "symbol_resolution")
-      then "symbol_resolution"
-      elif any($groups[]?; .blocker_group == "evidence_quality")
-      then "evidence_quality"
-      elif any($groups[]?; .blocker_group == "source_independence")
-      then "source_independence"
-      elif $status == "screened_without_research_candidate"
-      then "unclassified_screening_gap"
-      else "no_candidate_gap_detected"
+      else (dominant_blocker_group($groups)) as $dominant
+      | if $dominant == "market_context_materialization"
+        then "market_context_materialization"
+        elif $dominant == "market_context_admissibility"
+        then "market_context_admissibility"
+        elif $dominant == "point_in_time_universe_admission"
+        then "point_in_time_universe_admission"
+        elif $dominant == "symbol_resolution"
+        then "symbol_resolution"
+        elif $dominant == "evidence_quality"
+        then "evidence_quality"
+        elif $dominant == "source_independence"
+        then "source_independence"
+        elif $dominant != null
+        then $dominant
+        elif $status == "screened_without_research_candidate"
+        then "unclassified_screening_gap"
+        else "no_candidate_gap_detected"
+        end
       end;
 
     def symbolized($records; $structured_records):
