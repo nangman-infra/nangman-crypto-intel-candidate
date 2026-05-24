@@ -101,6 +101,18 @@ shadow, paper, and live gates closed. The output includes per-symbol
 structured intel from market-context materialization, point-in-time universe,
 symbol-resolution, and evidence-quality blockers.
 
+The source gap report also preserves `market_context_gap` details for approved
+major-50 symbols that were screened but did not become research candidates. In
+`intel_candidate_source_gap_diagnosis_v2`, the report separates ordinary
+market-context materialization gaps from terminal missing context tied to events
+older than the observed market-context floor. A symbol is marked
+`historical_market_l1_backfill_required` only when all of its terminal missing
+context packets fall before that floor; mixed cases keep their normal primary
+blocker while `summary.global_market_context_gap` and the per-symbol
+`historical_terminal_missing_context_present` field show the backlog that needs
+historical Market-L1 backfill or stale-public-intel marking before research
+dispatch is opened.
+
 To materialize those local inputs from the currently deployed ECS candidate
 agent, use the read-only export helper. It reads the task definition to discover
 the configured input/output buckets, downloads only the selected UTC `dt`
