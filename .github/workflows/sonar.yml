@@ -119,6 +119,17 @@ jobs:
                 ]
               }'
 
+          project_key="$(sed -n 's/^projectKey=//p' "$report_file")"
+          curl -fsS -u "$SONAR_TOKEN:" \
+            "$server_url/api/issues/search?componentKeys=$project_key&resolved=false&inNewCodePeriod=true&ps=50" \
+            | jq '{
+                newIssueCount: .total,
+                issues: [
+                  .issues[]
+                  | {rule, severity, component, line, message}
+                ]
+              }'
+
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
         timeout-minutes: 5
