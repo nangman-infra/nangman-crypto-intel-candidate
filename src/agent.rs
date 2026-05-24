@@ -5,15 +5,19 @@ use crate::live::{
 };
 use crate::nats::StructuredIntelConsumer;
 use crate::telemetry;
-use crate::time::now_ms;
+use crate::time::{now_ms, time_part};
 use crate::worker::{CandidateWorker, WorkerArgs, worker_help};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 const DEFAULT_REPAIR_INTERVAL_SECS: u64 = 3_600;
 const DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX: usize = 500;
 const DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX: usize = 8;
+const DEFAULT_REPAIR_RECENT_PARTITION_DAYS: u32 = 3;
+const MILLIS_PER_DAY: i64 = 86_400_000;
+const STRUCTURED_PACKET_REPAIR_PREFIX: &str =
+    "structured-intel-packet/schema=structured_intel_packet_v1/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentArgs {
@@ -22,6 +26,7 @@ pub struct AgentArgs {
     pub repair_interval_secs: u64,
     pub repair_max_keys_per_prefix: usize,
     pub repair_max_pages_per_prefix: usize,
+    pub repair_recent_partition_days: u32,
     pub repair_enabled: bool,
 }
 
@@ -75,6 +80,7 @@ impl AgentArgs {
         let mut repair_interval_secs = DEFAULT_REPAIR_INTERVAL_SECS;
         let mut repair_max_keys_per_prefix = DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX;
         let mut repair_max_pages_per_prefix = DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX;
+        let mut repair_recent_partition_days = DEFAULT_REPAIR_RECENT_PARTITION_DAYS;
         let mut repair_enabled = true;
         let mut worker_args = Vec::new();
         let mut index = 0usize;
@@ -102,6 +108,11 @@ impl AgentArgs {
                     repair_max_pages_per_prefix =
                         parse_positive_usize(&next_value(&raw, index, raw[index - 1].as_str())?)?;
                 }
+                "--repair-recent-partition-days" | "--agent-repair-recent-partition-days" => {
+                    index += 1;
+                    repair_recent_partition_days =
+                        parse_non_negative_u32(&next_value(&raw, index, raw[index - 1].as_str())?)?;
+                }
                 "--disable-repair" | "--agent-disable-repair" => {
                     repair_enabled = false;
                 }
@@ -119,6 +130,7 @@ impl AgentArgs {
             repair_interval_secs,
             repair_max_keys_per_prefix,
             repair_max_pages_per_prefix,
+            repair_recent_partition_days,
             repair_enabled,
         }))
     }
@@ -229,6 +241,7 @@ Agent-specific flags:
   --repair-interval-secs <positive>          Default: {DEFAULT_REPAIR_INTERVAL_SECS}
   --repair-max-keys-per-prefix <positive>    Default: {DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX}
   --repair-max-pages-per-prefix <positive>   Default: {DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX}
+  --repair-recent-partition-days <count>     Default: {DEFAULT_REPAIR_RECENT_PARTITION_DAYS}. Adds recent dt=YYYY-MM-DD prefixes before broad scans.
   --disable-repair                           Disable repair scans even when prefixes are configured.
 
 Worker flags:
@@ -244,25 +257,28 @@ async fn run_repair_cycle(
     args: &AgentArgs,
     repair_scan_cursors: &mut RepairScanCursors,
 ) -> AppResult<RepairCycleReport> {
+    let repair_started_at_ms = now_ms();
+    let repair_input_prefixes = repair_prefixes_for_cycle(args, repair_started_at_ms);
     telemetry::info(
         "agent_repair_cycle_started",
         json!({
             "agent_run_id": agent_run_id,
-            "repair_input_prefixes": &args.repair_input_prefixes,
+            "configured_repair_input_prefixes": &args.repair_input_prefixes,
+            "repair_input_prefixes": &repair_input_prefixes,
             "repair_max_keys_per_prefix": args.repair_max_keys_per_prefix,
             "repair_max_pages_per_prefix": args.repair_max_pages_per_prefix,
+            "repair_recent_partition_days": args.repair_recent_partition_days,
         }),
     )?;
 
     let mut all_keys = Vec::new();
-    for prefix in &args.repair_input_prefixes {
-        all_keys.extend(
+    let mut seen_keys = HashSet::new();
+    for prefix in &repair_input_prefixes {
+        let keys =
             collect_repair_keys_for_prefix(agent_run_id, worker, args, repair_scan_cursors, prefix)
-                .await?,
-        );
+                .await?;
+        append_unique_keys(&mut all_keys, &mut seen_keys, keys);
     }
-    all_keys.sort();
-    all_keys.dedup();
 
     let mut report = RepairCycleReport {
         keys_seen: all_keys.len(),
@@ -352,6 +368,47 @@ fn repair_due(args: &AgentArgs, next_repair_after_ms: i64) -> bool {
         && now_ms() >= next_repair_after_ms
 }
 
+fn repair_prefixes_for_cycle(args: &AgentArgs, timestamp_ms: i64) -> Vec<String> {
+    let mut prefixes = Vec::new();
+    let mut seen = HashSet::new();
+
+    for prefix in &args.repair_input_prefixes {
+        if prefix == STRUCTURED_PACKET_REPAIR_PREFIX && args.repair_recent_partition_days > 0 {
+            for offset_days in 0..args.repair_recent_partition_days {
+                let offset_ms = i64::from(offset_days).saturating_mul(MILLIS_PER_DAY);
+                let partition_timestamp_ms = timestamp_ms.saturating_sub(offset_ms);
+                let part = time_part(partition_timestamp_ms);
+                let recent_prefix = format!("{prefix}dt={}/", part.event_date);
+                push_unique_prefix(&mut prefixes, &mut seen, recent_prefix);
+            }
+        }
+    }
+
+    for prefix in &args.repair_input_prefixes {
+        push_unique_prefix(&mut prefixes, &mut seen, prefix.to_owned());
+    }
+
+    prefixes
+}
+
+fn push_unique_prefix(prefixes: &mut Vec<String>, seen: &mut HashSet<String>, prefix: String) {
+    if seen.insert(prefix.clone()) {
+        prefixes.push(prefix);
+    }
+}
+
+fn append_unique_keys(
+    destination: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    keys: Vec<String>,
+) {
+    for key in keys {
+        if seen.insert(key.clone()) {
+            destination.push(key);
+        }
+    }
+}
+
 fn log_agent_started(agent_run_id: &str, args: &AgentArgs) -> AppResult<()> {
     telemetry::info(
         "agent_started",
@@ -362,6 +419,7 @@ fn log_agent_started(agent_run_id: &str, args: &AgentArgs) -> AppResult<()> {
             "repair_interval_secs": args.repair_interval_secs,
             "repair_max_keys_per_prefix": args.repair_max_keys_per_prefix,
             "repair_max_pages_per_prefix": args.repair_max_pages_per_prefix,
+            "repair_recent_partition_days": args.repair_recent_partition_days,
             "live_input_stream": args.worker.nats.input_stream,
             "live_input_subject": args.worker.nats.input_subject,
             "live_input_consumer": args.worker.nats.input_consumer,
@@ -414,6 +472,12 @@ fn parse_positive_usize(value: &str) -> AppResult<usize> {
     Ok(parsed)
 }
 
+fn parse_non_negative_u32(value: &str) -> AppResult<u32> {
+    value
+        .parse::<u32>()
+        .map_err(|error| AppError::config(format!("invalid non-negative integer {value}: {error}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +502,8 @@ mod tests {
                 "11",
                 "--repair-max-pages-per-prefix",
                 "3",
+                "--repair-recent-partition-days",
+                "2",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -452,6 +518,7 @@ mod tests {
         assert_eq!(args.repair_interval_secs, 60);
         assert_eq!(args.repair_max_keys_per_prefix, 11);
         assert_eq!(args.repair_max_pages_per_prefix, 3);
+        assert_eq!(args.repair_recent_partition_days, 2);
         assert!(args.repair_enabled);
     }
 
@@ -479,6 +546,93 @@ mod tests {
             args.repair_max_pages_per_prefix,
             DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX
         );
+        assert_eq!(
+            args.repair_recent_partition_days,
+            DEFAULT_REPAIR_RECENT_PARTITION_DAYS
+        );
+    }
+
+    #[test]
+    fn repair_prefixes_prioritize_recent_structured_partitions() {
+        let args = AgentArgs::parse(
+            [
+                "--nats-url",
+                "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+                "--repair-input-prefix",
+                "structured-intel-packet/schema=structured_intel_packet_v1/",
+                "--repair-recent-partition-days",
+                "2",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .expect("args parse")
+        .expect("args present");
+
+        assert_eq!(
+            repair_prefixes_for_cycle(&args, MILLIS_PER_DAY),
+            vec![
+                "structured-intel-packet/schema=structured_intel_packet_v1/dt=1970-01-02/",
+                "structured-intel-packet/schema=structured_intel_packet_v1/dt=1970-01-01/",
+                "structured-intel-packet/schema=structured_intel_packet_v1/"
+            ]
+        );
+    }
+
+    #[test]
+    fn repair_prefixes_leave_generic_prefixes_unexpanded() {
+        let args = AgentArgs::parse(
+            [
+                "--nats-url",
+                "nats://127.0.0.1:4222",
+                "--input-s3-bucket",
+                "test-structured-l1",
+                "--output-s3-bucket",
+                "test-candidate",
+                "--market-l1-s3-bucket",
+                "test-market-l1",
+                "--repair-input-prefix",
+                "custom-prefix/",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .expect("args parse")
+        .expect("args present");
+
+        assert_eq!(
+            repair_prefixes_for_cycle(&args, MILLIS_PER_DAY),
+            vec!["custom-prefix/"]
+        );
+    }
+
+    #[test]
+    fn append_unique_keys_preserves_first_seen_order() {
+        let mut keys = Vec::new();
+        let mut seen = HashSet::new();
+
+        append_unique_keys(
+            &mut keys,
+            &mut seen,
+            vec![
+                "recent-a".to_owned(),
+                "recent-b".to_owned(),
+                "recent-a".to_owned(),
+            ],
+        );
+        append_unique_keys(
+            &mut keys,
+            &mut seen,
+            vec!["old-a".to_owned(), "recent-b".to_owned()],
+        );
+
+        assert_eq!(keys, vec!["recent-a", "recent-b", "old-a"]);
     }
 
     #[test]

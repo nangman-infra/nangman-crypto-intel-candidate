@@ -34,10 +34,11 @@ intel-candidate-agent \
   --repair-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/ \
   --repair-interval-secs 3600 \
   --repair-max-keys-per-prefix 500 \
-  --repair-max-pages-per-prefix 8
+  --repair-max-pages-per-prefix 8 \
+  --repair-recent-partition-days 3
 ```
 
-Repair scans are bounded by prefix, interval, key count, and page count. The agent keeps a per-prefix scan cursor, so stale revision pages do not cause every cycle to reread the same first page forever. Repair uses the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
+Repair scans are bounded by prefix, interval, key count, and page count. For the canonical `structured-intel-packet/schema=structured_intel_packet_v1/` prefix, the agent also derives recent `dt=YYYY-MM-DD/` prefixes and scans them before the broad catch-up prefix. This keeps fresh major-50 packets moving through candidate screening even while older historical partitions still contain stale revisions. The agent keeps a per-prefix scan cursor, so stale revision pages do not cause every cycle to reread the same first page forever. Repair uses the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
 
 ## Canonical storage contract
 

@@ -47,7 +47,9 @@
         "--repair-max-keys-per-prefix",
         "500",
         "--repair-max-pages-per-prefix",
-        "8"
+        "8",
+        "--repair-recent-partition-days",
+        "3"
       ],
       "environment": [
         { "name": "AWS_REGION", "value": "ap-northeast-2" }
