@@ -72,6 +72,7 @@ replace_placeholder() {
     '${MARKET_L0_BUCKET}') printf '%s\n' "$MARKET_L0_BUCKET" ;;
     '${MARKET_L1_BUCKET}') printf '%s\n' "$MARKET_L1_BUCKET" ;;
     '${MARKET_L0_SPOOL_ROOT}') printf '%s\n' "$MARKET_L0_SPOOL_ROOT" ;;
+    '${MARKET_L1_SPOOL_ROOT}') printf '%s\n' "$MARKET_L1_SPOOL_ROOT" ;;
     '${MARKET_NORMALIZE_CATCHUP_TMP_ROOT}') printf '%s\n' "$MARKET_NORMALIZE_CATCHUP_TMP_ROOT" ;;
     *) printf '%s\n' "$1" ;;
   esac
@@ -190,6 +191,7 @@ if ! is_true "$DRY_RUN"; then
   require_real_env MARKET_L0_BUCKET
   require_real_env MARKET_L1_BUCKET
   require_real_env MARKET_L0_SPOOL_ROOT
+  require_real_env MARKET_L1_SPOOL_ROOT
   require_real_env MARKET_NORMALIZE_CATCHUP_TMP_ROOT
 fi
 

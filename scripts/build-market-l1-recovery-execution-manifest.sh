@@ -149,6 +149,8 @@ jq -n \
         "${MARKET_L0_SPOOL_ROOT}",
         "--l1-s3-bucket",
         "${MARKET_L1_BUCKET}",
+        "--spool-root",
+        "${MARKET_L1_SPOOL_ROOT}",
         "--catchup-tmp-root",
         "${MARKET_NORMALIZE_CATCHUP_TMP_ROOT}",
         "--input-start-ms",
@@ -326,6 +328,7 @@ jq -n \
           "MARKET_L0_BUCKET",
           "MARKET_L1_BUCKET",
           "MARKET_L0_SPOOL_ROOT",
+          "MARKET_L1_SPOOL_ROOT",
           "MARKET_NORMALIZE_CATCHUP_TMP_ROOT"
         ],
         approval_boundary:{
