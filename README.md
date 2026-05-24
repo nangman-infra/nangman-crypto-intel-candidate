@@ -141,9 +141,12 @@ scripts/diagnose-candidate-source-gaps.sh \
 If the source gap diagnosis reports historical terminal missing market context,
 turn it into a local Market-L1 recovery plan before running any backfill. The
 planner emits packet-sized recovery windows with placeholder market-ingest
-arguments. It does not read or write S3, start ECS, change dispatcher mode, or
-open research/shadow/paper/live gates. Symbol mappings derived from a quote
-suffix are marked for review; by default the planner uses
+arguments. Those windows are aligned to the `market-normalize` schedule interval
+and include read-only L1 index audit arguments so operators can prove which
+windows already exist before writing new L0/L1 data. It does not read or write
+S3, start ECS, change dispatcher mode, or open research/shadow/paper/live gates.
+Symbol mappings derived from a quote suffix are marked for review; by default
+the planner uses
 `/Volumes/WD/Developments/nangman-crypto/apps/market-ingest-app/config/universe.major-50.toml`
 when it is available, and `INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE` can override
 that with an operator-approved JSON mapping.

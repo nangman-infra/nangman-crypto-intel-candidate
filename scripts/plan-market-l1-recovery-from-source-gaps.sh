@@ -9,6 +9,8 @@ MARKET_VENUE="${INTEL_CANDIDATE_MARKET_VENUE:-binance}"
 MARKET_QUOTE_SUFFIX="${INTEL_CANDIDATE_MARKET_QUOTE_SUFFIX:-USDT}"
 MARKET_SYMBOL_MAP_FILE="${INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE:-}"
 RECOVERY_MARGIN_MS="${INTEL_CANDIDATE_MARKET_L1_RECOVERY_MARGIN_MS:-3600000}"
+MARKET_WINDOW_MS="${INTEL_CANDIDATE_MARKET_L1_WINDOW_MS:-1000}"
+NORMALIZE_SCHEDULE_INTERVAL_MS="${INTEL_CANDIDATE_MARKET_L1_NORMALIZE_SCHEDULE_INTERVAL_MS:-900000}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -58,6 +60,8 @@ require_command mktemp
 require_absolute_file "INTEL_CANDIDATE_SOURCE_GAP_FILE or first argument" "$SOURCE_GAP_FILE"
 require_absolute_output_path "INTEL_CANDIDATE_MARKET_L1_RECOVERY_PLAN_OUTPUT or second argument" "$OUTPUT_FILE"
 require_positive_integer "INTEL_CANDIDATE_MARKET_L1_RECOVERY_MARGIN_MS" "$RECOVERY_MARGIN_MS"
+require_positive_integer "INTEL_CANDIDATE_MARKET_L1_WINDOW_MS" "$MARKET_WINDOW_MS"
+require_positive_integer "INTEL_CANDIDATE_MARKET_L1_NORMALIZE_SCHEDULE_INTERVAL_MS" "$NORMALIZE_SCHEDULE_INTERVAL_MS"
 
 if [[ "$MARKET_INGEST_APP_ROOT" != /* ]]; then
   echo "INTEL_CANDIDATE_MARKET_INGEST_APP_ROOT must be an absolute path" >&2
@@ -136,6 +140,8 @@ jq -n \
   --arg market_symbol_map_file "$MARKET_SYMBOL_MAP_FILE" \
   --arg symbol_map_source "$symbol_map_source" \
   --argjson recovery_margin_ms "$RECOVERY_MARGIN_MS" \
+  --argjson market_window_ms "$MARKET_WINDOW_MS" \
+  --argjson normalize_schedule_interval_ms "$NORMALIZE_SCHEDULE_INTERVAL_MS" \
   --slurpfile source "$SOURCE_GAP_FILE" \
   --slurpfile symbol_map "$symbol_map_json" \
   '
@@ -165,6 +171,18 @@ jq -n \
 
     def clamp_positive:
       if . < 1 then 1 else . end;
+
+    def align_floor($interval):
+      if $interval <= 0 then .
+      else (. - (. % $interval))
+      end;
+
+    def align_ceil($interval):
+      if $interval <= 0 then .
+      else
+        (. % $interval) as $remainder
+        | if $remainder == 0 then . else (. + ($interval - $remainder)) end
+      end;
 
     def market_backfill_args($symbol; $start_ms; $end_ms):
       [
@@ -212,6 +230,33 @@ jq -n \
         ($start_ms | tostring),
         "--input-end-ms",
         ($end_ms | tostring),
+        "--window-ms",
+        ($market_window_ms | tostring),
+        "--schedule-interval-ms",
+        ($normalize_schedule_interval_ms | tostring),
+        "--aws-region",
+        "<aws-region>"
+      ];
+
+    def market_l1_index_audit_args($start_ms; $end_ms):
+      [
+        "cargo",
+        "run",
+        "--manifest-path",
+        "\($market_ingest_app_root)/Cargo.toml",
+        "--bin",
+        "market-normalize",
+        "--",
+        "--l0-s3-bucket",
+        "<market-l0-bucket>",
+        "--l1-s3-bucket",
+        "<market-l1-bucket>",
+        "--audit-l1-index-start-ms",
+        ($start_ms | tostring),
+        "--audit-l1-index-end-ms",
+        ($end_ms | tostring),
+        "--window-ms",
+        ($market_window_ms | tostring),
         "--aws-region",
         "<aws-region>"
       ];
@@ -229,8 +274,8 @@ jq -n \
             (.market_context_gap.historical_terminal_missing_context_records // [])[]
             | (.event_basis_ms // null) as $event_ms
             | select($event_ms != null)
-            | (($event_ms - $recovery_margin_ms) | clamp_positive) as $window_start_ms
-            | (($event_ms + $recovery_margin_ms) | clamp_positive) as $window_end_ms
+            | (($event_ms - $recovery_margin_ms) | clamp_positive | align_floor($normalize_schedule_interval_ms)) as $window_start_ms
+            | (($event_ms + $recovery_margin_ms) | clamp_positive | align_ceil($normalize_schedule_interval_ms)) as $window_end_ms
             | {
                 packet_id:.packet_id,
                 symbols:(.symbols // []),
@@ -241,9 +286,12 @@ jq -n \
                 recovery_input_end_ms:$window_end_ms,
                 recovery_input_end_at:($window_end_ms | iso_ms),
                 market_backfill_args:market_backfill_args($symbol; $window_start_ms; $window_end_ms),
-                market_normalize_args:market_normalize_args($window_start_ms; $window_end_ms)
+                market_normalize_args:market_normalize_args($window_start_ms; $window_end_ms),
+                market_l1_index_audit_args:market_l1_index_audit_args($window_start_ms; $window_end_ms)
               }
           ]) as $recovery_windows
+        | ($recovery_windows | map(.recovery_input_start_ms) | min) as $recovery_start_ms
+        | ($recovery_windows | map(.recovery_input_end_ms) | max) as $recovery_end_ms
         | {
             symbol:.symbol,
             recovery_class:(
@@ -298,7 +346,9 @@ jq -n \
             if ($market_symbol_map_file | length) == 0 then null else $market_symbol_map_file end
           ),
           symbol_map_source:$symbol_map_source,
-          recovery_margin_ms:$recovery_margin_ms
+          recovery_margin_ms:$recovery_margin_ms,
+          market_window_ms:$market_window_ms,
+          normalize_schedule_interval_ms:$normalize_schedule_interval_ms
         },
         safety:{
           local_planning_only:true,
@@ -350,6 +400,7 @@ jq -n \
           l0_worker_writes_s3:true,
           l1_worker_writes_s3:true,
           plan_executes_workers:false,
+          read_only_audit_worker:"market-normalize --audit-l1-index-*",
           expected_artifacts_after_approved_execution:[
             "raw_market_event L0",
             "normalized_market_slice_v1 L1",
