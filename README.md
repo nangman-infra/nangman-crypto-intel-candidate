@@ -187,6 +187,8 @@ AWS_PROFILE=<sso-profile> \
 AWS_REGION=ap-northeast-2 \
 MARKET_L0_BUCKET=<market-l0-bucket> \
 MARKET_L1_BUCKET=<market-l1-bucket> \
+MARKET_L0_SPOOL_ROOT=/tmp/nangman-crypto/market-ingest-spool/l0 \
+MARKET_NORMALIZE_CATCHUP_TMP_ROOT=/tmp/nangman-crypto/market-normalize/catchup \
 INTEL_CANDIDATE_MARKET_L1_RECOVERY_APPROVAL=approve_market_l1_s3_write_recovery \
 scripts/run-market-l1-recovery-execution-manifest.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-execution-manifest.redacted.json \

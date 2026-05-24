@@ -127,6 +127,8 @@ jq -n \
         $symbol,
         "--l0-s3-bucket",
         "${MARKET_L0_BUCKET}",
+        "--l0-spool-root",
+        "${MARKET_L0_SPOOL_ROOT}",
         "--aws-region",
         "${AWS_REGION}"
       ];
@@ -143,11 +145,11 @@ jq -n \
         "--l0-s3-bucket",
         "${MARKET_L0_BUCKET}",
         "--l0-local-root",
-        "/opt/nangman-crypto/data/spool/market-ingest/l0",
+        "${MARKET_L0_SPOOL_ROOT}",
         "--l1-s3-bucket",
         "${MARKET_L1_BUCKET}",
         "--catchup-tmp-root",
-        "/opt/nangman-crypto/data/spool/market-normalize/catchup",
+        "${MARKET_NORMALIZE_CATCHUP_TMP_ROOT}",
         "--input-start-ms",
         ($start_ms | tostring),
         "--input-end-ms",
@@ -319,7 +321,9 @@ jq -n \
           "AWS_PROFILE",
           "AWS_REGION",
           "MARKET_L0_BUCKET",
-          "MARKET_L1_BUCKET"
+          "MARKET_L1_BUCKET",
+          "MARKET_L0_SPOOL_ROOT",
+          "MARKET_NORMALIZE_CATCHUP_TMP_ROOT"
         ],
         approval_boundary:{
           required:true,
