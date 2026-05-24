@@ -45,7 +45,9 @@
         "--repair-interval-secs",
         "3600",
         "--repair-max-keys-per-prefix",
-        "500"
+        "500",
+        "--repair-max-pages-per-prefix",
+        "8"
       ],
       "environment": [
         { "name": "AWS_REGION", "value": "ap-northeast-2" }

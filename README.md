@@ -33,10 +33,11 @@ intel-candidate-agent \
   --policy-file /opt/nangman-crypto/intel-candidate/policies/scoring-policy.v1.json \
   --repair-input-prefix structured-intel-packet/schema=structured_intel_packet_v1/ \
   --repair-interval-secs 3600 \
-  --repair-max-keys-per-prefix 500
+  --repair-max-keys-per-prefix 500 \
+  --repair-max-pages-per-prefix 8
 ```
 
-Repair scans are bounded by prefix, interval, and key count. The agent keeps a per-prefix scan cursor, so stale revision pages do not cause every cycle to reread the same first page forever. Repair uses the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
+Repair scans are bounded by prefix, interval, key count, and page count. The agent keeps a per-prefix scan cursor, so stale revision pages do not cause every cycle to reread the same first page forever. Repair uses the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
 
 ## Canonical storage contract
 

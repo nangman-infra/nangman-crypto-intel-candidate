@@ -13,6 +13,7 @@ use std::time::Duration;
 
 const DEFAULT_REPAIR_INTERVAL_SECS: u64 = 3_600;
 const DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX: usize = 500;
+const DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentArgs {
@@ -20,6 +21,7 @@ pub struct AgentArgs {
     pub repair_input_prefixes: Vec<String>,
     pub repair_interval_secs: u64,
     pub repair_max_keys_per_prefix: usize,
+    pub repair_max_pages_per_prefix: usize,
     pub repair_enabled: bool,
 }
 
@@ -72,6 +74,7 @@ impl AgentArgs {
         let mut repair_input_prefixes = Vec::new();
         let mut repair_interval_secs = DEFAULT_REPAIR_INTERVAL_SECS;
         let mut repair_max_keys_per_prefix = DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX;
+        let mut repair_max_pages_per_prefix = DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX;
         let mut repair_enabled = true;
         let mut worker_args = Vec::new();
         let mut index = 0usize;
@@ -94,6 +97,11 @@ impl AgentArgs {
                     repair_max_keys_per_prefix =
                         parse_positive_usize(&next_value(&raw, index, raw[index - 1].as_str())?)?;
                 }
+                "--repair-max-pages-per-prefix" | "--agent-repair-max-pages-per-prefix" => {
+                    index += 1;
+                    repair_max_pages_per_prefix =
+                        parse_positive_usize(&next_value(&raw, index, raw[index - 1].as_str())?)?;
+                }
                 "--disable-repair" | "--agent-disable-repair" => {
                     repair_enabled = false;
                 }
@@ -110,6 +118,7 @@ impl AgentArgs {
             repair_input_prefixes,
             repair_interval_secs,
             repair_max_keys_per_prefix,
+            repair_max_pages_per_prefix,
             repair_enabled,
         }))
     }
@@ -219,6 +228,7 @@ Agent-specific flags:
   --repair-input-prefix <s3-prefix>          Repeatable. Enables bounded S3 repair scans.
   --repair-interval-secs <positive>          Default: {DEFAULT_REPAIR_INTERVAL_SECS}
   --repair-max-keys-per-prefix <positive>    Default: {DEFAULT_REPAIR_MAX_KEYS_PER_PREFIX}
+  --repair-max-pages-per-prefix <positive>   Default: {DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX}
   --disable-repair                           Disable repair scans even when prefixes are configured.
 
 Worker flags:
@@ -240,33 +250,16 @@ async fn run_repair_cycle(
             "agent_run_id": agent_run_id,
             "repair_input_prefixes": &args.repair_input_prefixes,
             "repair_max_keys_per_prefix": args.repair_max_keys_per_prefix,
+            "repair_max_pages_per_prefix": args.repair_max_pages_per_prefix,
         }),
     )?;
 
     let mut all_keys = Vec::new();
     for prefix in &args.repair_input_prefixes {
-        let scan_start_after = repair_scan_cursors.start_after(prefix).map(str::to_owned);
-        let page = worker
-            .list_replay_input_key_page(
-                prefix,
-                args.repair_max_keys_per_prefix,
-                scan_start_after.as_deref(),
-            )
-            .await?;
-        let cursor_continues =
-            repair_scan_cursors.update_after_page(prefix, page.next_start_after.clone());
-        telemetry::info(
-            "agent_repair_prefix_scanned",
-            json!({
-                "agent_run_id": agent_run_id,
-                "input_prefix": prefix,
-                "scan_start_after": scan_start_after,
-                "next_start_after": page.next_start_after,
-                "cursor_continues": cursor_continues,
-                "keys": page.keys.len(),
-            }),
-        )?;
-        all_keys.extend(page.keys);
+        all_keys.extend(
+            collect_repair_keys_for_prefix(agent_run_id, worker, args, repair_scan_cursors, prefix)
+                .await?,
+        );
     }
     all_keys.sort();
     all_keys.dedup();
@@ -312,6 +305,47 @@ async fn run_repair_cycle(
     Ok(report)
 }
 
+async fn collect_repair_keys_for_prefix(
+    agent_run_id: &str,
+    worker: &CandidateWorker,
+    args: &AgentArgs,
+    repair_scan_cursors: &mut RepairScanCursors,
+    prefix: &str,
+) -> AppResult<Vec<String>> {
+    let mut keys = Vec::new();
+    for page_number in 1..=args.repair_max_pages_per_prefix {
+        let scan_start_after = repair_scan_cursors.start_after(prefix).map(str::to_owned);
+        let page = worker
+            .list_replay_input_key_page(
+                prefix,
+                args.repair_max_keys_per_prefix,
+                scan_start_after.as_deref(),
+            )
+            .await?;
+        let page_key_count = page.keys.len();
+        let cursor_continues =
+            repair_scan_cursors.update_after_page(prefix, page.next_start_after.clone());
+        telemetry::info(
+            "agent_repair_prefix_scanned",
+            json!({
+                "agent_run_id": agent_run_id,
+                "input_prefix": prefix,
+                "repair_page_number": page_number,
+                "repair_max_pages_per_prefix": args.repair_max_pages_per_prefix,
+                "scan_start_after": scan_start_after,
+                "next_start_after": page.next_start_after,
+                "cursor_continues": cursor_continues,
+                "keys": page_key_count,
+            }),
+        )?;
+        keys.extend(page.keys);
+        if !cursor_continues || page_key_count == 0 {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
 fn repair_due(args: &AgentArgs, next_repair_after_ms: i64) -> bool {
     args.repair_enabled
         && !args.repair_input_prefixes.is_empty()
@@ -327,6 +361,7 @@ fn log_agent_started(agent_run_id: &str, args: &AgentArgs) -> AppResult<()> {
             "repair_input_prefixes": &args.repair_input_prefixes,
             "repair_interval_secs": args.repair_interval_secs,
             "repair_max_keys_per_prefix": args.repair_max_keys_per_prefix,
+            "repair_max_pages_per_prefix": args.repair_max_pages_per_prefix,
             "live_input_stream": args.worker.nats.input_stream,
             "live_input_subject": args.worker.nats.input_subject,
             "live_input_consumer": args.worker.nats.input_consumer,
@@ -401,6 +436,8 @@ mod tests {
                 "60",
                 "--repair-max-keys-per-prefix",
                 "11",
+                "--repair-max-pages-per-prefix",
+                "3",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -414,6 +451,7 @@ mod tests {
         );
         assert_eq!(args.repair_interval_secs, 60);
         assert_eq!(args.repair_max_keys_per_prefix, 11);
+        assert_eq!(args.repair_max_pages_per_prefix, 3);
         assert!(args.repair_enabled);
     }
 
@@ -437,6 +475,10 @@ mod tests {
         .expect("args parse")
         .expect("args present");
         assert!(!args.repair_enabled);
+        assert_eq!(
+            args.repair_max_pages_per_prefix,
+            DEFAULT_REPAIR_MAX_PAGES_PER_PREFIX
+        );
     }
 
     #[test]
