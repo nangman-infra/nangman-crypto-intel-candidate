@@ -243,8 +243,9 @@ jq -n \
       then "market_context_materialization"
       elif . == "missing_market_regime_context"
         or . == "missing_data_quality_summary"
-        or . == "market_context_not_research_admissible"
       then "market_context_materialization"
+      elif . == "market_context_not_research_admissible"
+      then "market_context_admissibility"
       elif . == "missing_point_in_time_universe"
         or . == "not_admitted_universe"
       then "point_in_time_universe_admission"
@@ -334,6 +335,8 @@ jq -n \
       then "historical_market_l1_backfill_required"
       elif any($groups[]?; .blocker_group == "market_context_materialization")
       then "market_context_materialization"
+      elif any($groups[]?; .blocker_group == "market_context_admissibility")
+      then "market_context_admissibility"
       elif any($groups[]?; .blocker_group == "point_in_time_universe_admission")
       then "point_in_time_universe_admission"
       elif any($groups[]?; .blocker_group == "symbol_resolution")
@@ -657,6 +660,10 @@ jq -n \
             end,
             if any($symbol_diagnostics[]?; .primary_blocker == "market_context_materialization")
               then "repair_or_rehydrate_market_context_before_forcing_candidate_generation"
+              else empty
+            end,
+            if any($symbol_diagnostics[]?; .primary_blocker == "market_context_admissibility")
+              then "inspect_market_context_admissibility_before_forcing_candidate_generation"
               else empty
             end,
             if any($symbol_diagnostics[]?; .market_context_gap.historical_terminal_missing_context_present // false)
