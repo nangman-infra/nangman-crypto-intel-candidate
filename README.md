@@ -170,6 +170,29 @@ scripts/build-market-l1-recovery-execution-manifest.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/market-l1-recovery-readiness.redacted.json
 ```
 
+The approval runner checkpoints each step and can resume already completed
+steps. Without the explicit approval phrase it can only dry-run. A non-dry run
+executes `market-backfill` and `market-normalize`, so it writes Market-L0/L1 S3
+objects.
+
+```bash
+INTEL_CANDIDATE_MARKET_L1_RECOVERY_DRY_RUN=true \
+scripts/run-market-l1-recovery-execution-manifest.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-execution-manifest.redacted.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/market-l1-recovery-run
+```
+
+```bash
+AWS_PROFILE=<sso-profile> \
+AWS_REGION=ap-northeast-2 \
+MARKET_L0_BUCKET=<market-l0-bucket> \
+MARKET_L1_BUCKET=<market-l1-bucket> \
+INTEL_CANDIDATE_MARKET_L1_RECOVERY_APPROVAL=approve_market_l1_s3_write_recovery \
+scripts/run-market-l1-recovery-execution-manifest.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-execution-manifest.redacted.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/market-l1-recovery-run
+```
+
 Research-bound evidence bundles only emit horizons that downstream `research-app`
 can admit under its intraday holding contract: `15m`, `1h`, `4h`, `24h`, or
 `72h`. Longer horizons such as `7d` stay outside candidate output until the
