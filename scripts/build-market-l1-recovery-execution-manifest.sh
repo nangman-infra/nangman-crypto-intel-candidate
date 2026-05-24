@@ -162,6 +162,8 @@ jq -n \
         "--schedule-interval-ms",
         ($schedule_interval_ms | tostring),
         "--disable-s3-retention",
+        "--l1-index-upload-concurrency",
+        "32",
         "--aws-region",
         "${AWS_REGION}"
       ];
