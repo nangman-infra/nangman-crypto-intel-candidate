@@ -400,6 +400,7 @@ jq -n \
             ),
             available_context_packets:($available_context_packet_ids | length),
             historical_terminal_missing_context_present:(($historical_terminal_missing_context_matches | length) > 0),
+            current_or_unknown_terminal_missing_context_present:(($current_or_unknown_terminal_missing_context_matches | length) > 0),
             historical_terminal_missing_event_basis_min_ms:(
               [
                 $historical_terminal_missing_context_matches[]
@@ -446,6 +447,10 @@ jq -n \
             ),
             historical_terminal_missing_context_records:(
               $historical_terminal_missing_context_matches
+              | sort_by(.event_basis_ms // 0)
+            ),
+            current_or_unknown_terminal_missing_context_records:(
+              $current_or_unknown_terminal_missing_context_matches
               | sort_by(.event_basis_ms // 0)
             )
           } as $market_context_gap
@@ -509,6 +514,10 @@ jq -n \
         ),
         symbols_with_historical_terminal_missing_context:(
           [$symbol_diagnostics[] | select(.market_context_gap.historical_terminal_missing_context_present // false)]
+          | length
+        ),
+        symbols_with_current_or_unknown_terminal_missing_context:(
+          [$symbol_diagnostics[] | select(.market_context_gap.current_or_unknown_terminal_missing_context_present // false)]
           | length
         ),
         symbols_requiring_full_historical_backfill:(
