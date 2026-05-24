@@ -122,6 +122,12 @@ blocker while `summary.global_market_context_gap` and the per-symbol
 `historical_terminal_missing_context_present` field show the backlog that needs
 historical Market-L1 backfill or stale-public-intel marking before research
 dispatch is opened.
+When approved, research-eligible candidate evidence already exists but was not
+inside the research batch selection window, the report marks the symbol as
+`candidate_evidence_outside_research_batch_selection` with primary blocker
+`research_batch_scan_window`. That case should widen the candidate scan or build
+a focused manifest from the existing evidence, not trigger market-context
+backfill or source crawling.
 
 To materialize those local inputs from the currently deployed ECS candidate
 agent, use the read-only export helper. It reads the task definition to discover

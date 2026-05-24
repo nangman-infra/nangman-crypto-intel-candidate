@@ -260,6 +260,54 @@ jq -n \
       else "other"
       end;
 
+    def horizon_ms($h):
+      if $h == "15m" then 900000
+      elif $h == "1h" then 3600000
+      elif $h == "4h" then 14400000
+      elif $h == "24h" then 86400000
+      elif $h == "72h" then 259200000
+      elif $h == "7d" then 604800000
+      else null
+      end;
+
+    def evidence_horizon_contract_valid:
+      (.allowed_horizons // []) as $horizons
+      | ($horizons | length) > 0
+        and all($horizons[]; (horizon_ms(.) != null and horizon_ms(.) <= 259200000));
+
+    def evidence_contract_summary($matches):
+      {
+        research_eligible_count:([$matches[] | select(.research_eligible == true)] | length),
+        approved_universe_count:([$matches[] | select(.approved_universe_symbol == true)] | length),
+        horizon_contract_valid_count:([$matches[] | select(evidence_horizon_contract_valid)] | length),
+        latest_created_at_ms:(
+          [
+            $matches[]
+            | (.candidate_created_at_ms? // .created_at_ms? // null)
+            | select(. != null)
+          ]
+          | max
+        ),
+        latest_created_at:(
+          [
+            $matches[]
+            | (.candidate_created_at_ms? // .created_at_ms? // null)
+            | select(. != null)
+          ]
+          | max
+          | iso_ms
+        ),
+        sample_evidence_refs:(
+          [
+            $matches[]
+            | (.bundle_key? // .key? // .storage_uri? // empty)
+          ]
+          | unique
+          | sort
+          | .[0:10]
+        )
+      };
+
     def histogram($values; $key_name):
       reduce $values[] as $value ({};
         .[$value] = (.[$value] // 0) + 1
@@ -273,6 +321,8 @@ jq -n \
       then "structured_intel_absent"
       elif $status == "structured_intel_without_screening"
       then "candidate_worker_input_gap"
+      elif $status == "candidate_evidence_outside_research_batch_selection"
+      then "research_batch_scan_window"
       elif $status == "candidate_evidence_present_not_in_research_gap"
       then "research_manifest_reconciliation"
       elif (($market_context_gap.historical_backfill_required // false)
@@ -334,6 +384,7 @@ jq -n \
         | records_for_symbol($screening_symbolized; $symbol) as $screening_matches
         | records_for_symbol($hypothesis_symbolized; $symbol) as $hypothesis_matches
         | records_for_symbol($evidence_symbolized; $symbol) as $evidence_matches
+        | (evidence_contract_summary($evidence_matches)) as $evidence_contract
         | ([
             ($screening_matches[] | reasons[]),
             ($hypothesis_matches[] | reasons[]),
@@ -345,7 +396,13 @@ jq -n \
             ($evidence_matches[] | candidate_class)
           ] | map(select(length > 0))) as $class_values
         | (
-            if ($evidence_matches | length) > 0 then "candidate_evidence_present_not_in_research_gap"
+            if (
+              ($evidence_matches | length) > 0
+              and ($evidence_contract.research_eligible_count // 0) > 0
+              and ($evidence_contract.approved_universe_count // 0) > 0
+              and ($evidence_contract.horizon_contract_valid_count // 0) > 0
+            ) then "candidate_evidence_outside_research_batch_selection"
+            elif ($evidence_matches | length) > 0 then "candidate_evidence_present_not_in_research_gap"
             elif (($screening_matches | length) > 0) or (($hypothesis_matches | length) > 0) then "screened_without_research_candidate"
             elif ($structured_matches | length) > 0 then "structured_intel_without_screening"
             else "no_structured_intel_seen"
@@ -464,6 +521,7 @@ jq -n \
               hypothesis_states:($hypothesis_matches | length),
               evidence_bundles:($evidence_matches | length)
             },
+            evidence_contract:$evidence_contract,
             market_context_gap:$market_context_gap,
             candidate_classes:histogram($class_values; "candidate_class"),
             blocker_groups:$blocker_groups,
@@ -587,6 +645,10 @@ jq -n \
             end,
             if any($symbol_diagnostics[]?; .status == "screened_without_research_candidate")
               then "inspect_scoring_rejection_reasons_before_enabling_dispatcher_run_task"
+              else empty
+            end,
+            if any($symbol_diagnostics[]?; .status == "candidate_evidence_outside_research_batch_selection")
+              then "widen_research_candidate_scan_or_build_focused_manifest_for_existing_evidence"
               else empty
             end,
             if any($symbol_diagnostics[]?; .primary_blocker == "market_context_materialization")
