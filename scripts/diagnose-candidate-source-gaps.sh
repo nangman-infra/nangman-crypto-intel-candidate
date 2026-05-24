@@ -648,7 +648,7 @@ jq -n \
               else empty
             end,
             if any($symbol_diagnostics[]?; .status == "screened_without_research_candidate")
-              then "inspect_scoring_rejection_reasons_before_enabling_dispatcher_run_task"
+              then "inspect_scoring_rejection_reasons_before_widening_research_dispatch"
               else empty
             end,
             if any($symbol_diagnostics[]?; .status == "candidate_evidence_outside_research_batch_selection")
@@ -671,7 +671,7 @@ jq -n \
               then "reconcile_candidate_evidence_artifacts_with_research_gap_status"
               else empty
             end,
-            "keep_dispatcher_dry_run_until_batch_research_loop_is_closed",
+            "keep_research_dispatch_current_approved_gated_until_candidate_source_gaps_are_closed",
             "do_not_open_shadow_paper_live_from_candidate_source_gap"
           ]
           | unique
