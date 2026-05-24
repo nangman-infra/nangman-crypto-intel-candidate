@@ -157,6 +157,19 @@ scripts/plan-market-l1-recovery-from-source-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-plan.local.json
 ```
 
+After read-only L1 index audit and symbol checks, turn the recovery plan into a
+redacted approval manifest. This manifest merges duplicate or overlapping
+windows and keeps bucket/profile values as environment placeholders. It still
+does not execute backfill, write S3, start ECS, change dispatcher mode, or open
+shadow/paper/live gates.
+
+```bash
+scripts/build-market-l1-recovery-execution-manifest.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-plan.local.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-execution-manifest.redacted.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/market-l1-recovery-readiness.redacted.json
+```
+
 Research-bound evidence bundles only emit horizons that downstream `research-app`
 can admit under its intraday holding contract: `15m`, `1h`, `4h`, `24h`, or
 `72h`. Longer horizons such as `7d` stay outside candidate output until the
