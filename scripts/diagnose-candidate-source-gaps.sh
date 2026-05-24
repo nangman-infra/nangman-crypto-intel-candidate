@@ -391,8 +391,49 @@ jq -n \
             terminal_missing_context_packets:($terminal_missing_context_matches | length),
             terminal_missing_before_observed_context_floor:($historical_terminal_missing_context_matches | length),
             terminal_missing_at_or_after_observed_context_floor:($current_or_unknown_terminal_missing_context_matches | length),
+            terminal_missing_unknown_event_basis:(
+              [
+                $terminal_missing_context_matches[]
+                | select(.event_basis_ms == null)
+              ]
+              | length
+            ),
             available_context_packets:($available_context_packet_ids | length),
             historical_terminal_missing_context_present:(($historical_terminal_missing_context_matches | length) > 0),
+            historical_terminal_missing_event_basis_min_ms:(
+              [
+                $historical_terminal_missing_context_matches[]
+                | .event_basis_ms
+                | select(. != null)
+              ]
+              | min
+            ),
+            historical_terminal_missing_event_basis_min_at:(
+              [
+                $historical_terminal_missing_context_matches[]
+                | .event_basis_ms
+                | select(. != null)
+              ]
+              | min
+              | iso_ms
+            ),
+            historical_terminal_missing_event_basis_max_ms:(
+              [
+                $historical_terminal_missing_context_matches[]
+                | .event_basis_ms
+                | select(. != null)
+              ]
+              | max
+            ),
+            historical_terminal_missing_event_basis_max_at:(
+              [
+                $historical_terminal_missing_context_matches[]
+                | .event_basis_ms
+                | select(. != null)
+              ]
+              | max
+              | iso_ms
+            ),
             historical_backfill_required:(
               ($terminal_missing_context_matches | length) > 0
               and $observed_market_context_floor_ms != null
@@ -402,6 +443,10 @@ jq -n \
               $terminal_missing_context_matches
               | sort_by(.event_basis_ms // 0)
               | .[0:10]
+            ),
+            historical_terminal_missing_context_records:(
+              $historical_terminal_missing_context_matches
+              | sort_by(.event_basis_ms // 0)
             )
           } as $market_context_gap
         | {

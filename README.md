@@ -138,6 +138,20 @@ scripts/diagnose-candidate-source-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json
 ```
 
+If the source gap diagnosis reports historical terminal missing market context,
+turn it into a local Market-L1 recovery plan before running any backfill. The
+planner emits packet-sized recovery windows with placeholder market-ingest
+arguments. It does not read or write S3, start ECS, change dispatcher mode, or
+open research/shadow/paper/live gates. Symbol mappings derived from a quote
+suffix are marked for review; pass `INTEL_CANDIDATE_MARKET_SYMBOL_MAP_FILE`
+when an operator-approved mapping is available.
+
+```bash
+scripts/plan-market-l1-recovery-from-source-gaps.sh \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json \
+  /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-market-l1-recovery-plan.local.json
+```
+
 Research-bound evidence bundles only emit horizons that downstream `research-app`
 can admit under its intraday holding contract: `15m`, `1h`, `4h`, `24h`, or
 `72h`. Longer horizons such as `7d` stay outside candidate output until the
