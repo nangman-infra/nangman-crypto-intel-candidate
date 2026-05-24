@@ -24,6 +24,12 @@ pub struct ObjectStore {
     bucket: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListKeysPage {
+    pub keys: Vec<String>,
+    pub next_start_after: Option<String>,
+}
+
 impl ObjectStore {
     pub async fn connect(config: ObjectStoreConfig) -> AppResult<Self> {
         validate_config(&config)?;
@@ -103,8 +109,22 @@ impl ObjectStore {
     }
 
     pub async fn list_keys(&self, prefix: &str, max_keys: usize) -> AppResult<Vec<String>> {
+        self.list_keys_page(prefix, max_keys, None)
+            .await
+            .map(|page| page.keys)
+    }
+
+    pub async fn list_keys_page(
+        &self,
+        prefix: &str,
+        max_keys: usize,
+        start_after: Option<&str>,
+    ) -> AppResult<ListKeysPage> {
         if max_keys == 0 {
-            return Ok(Vec::new());
+            return Ok(ListKeysPage {
+                keys: Vec::new(),
+                next_start_after: None,
+            });
         }
         let mut keys = Vec::new();
         let mut continuation_token = None;
@@ -118,6 +138,8 @@ impl ObjectStore {
                 .max_keys(remaining);
             if let Some(token) = continuation_token {
                 request = request.continuation_token(token);
+            } else if let Some(start_after) = start_after.filter(|value| !value.trim().is_empty()) {
+                request = request.start_after(start_after);
             }
             let output = request.send().await.map_err(|error| {
                 AppError::aws(format!(
@@ -138,7 +160,11 @@ impl ObjectStore {
                 break;
             }
         }
-        Ok(keys)
+        let next_start_after = continuation_token.and_then(|_| keys.last().cloned());
+        Ok(ListKeysPage {
+            keys,
+            next_start_after,
+        })
     }
 
     pub async fn put_jsonl_record_idempotent<T: serde::Serialize>(

@@ -36,7 +36,7 @@ intel-candidate-agent \
   --repair-max-keys-per-prefix 500
 ```
 
-Repair scans are bounded by prefix, interval, and key count. They use the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
+Repair scans are bounded by prefix, interval, and key count. The agent keeps a per-prefix scan cursor, so stale revision pages do not cause every cycle to reread the same first page forever. Repair uses the same deterministic scoring, idempotent S3 writes, NATS message IDs, and stale revision checks as live processing.
 
 ## Canonical storage contract
 

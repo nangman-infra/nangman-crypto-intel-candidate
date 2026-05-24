@@ -13,7 +13,7 @@ use crate::scoring::{
     MarketArtifactInputs, effective_packet_family_id, process_packet_with_artifacts,
     screening_event_key,
 };
-use crate::storage::{ObjectStore, ObjectStoreConfig};
+use crate::storage::{ListKeysPage, ObjectStore, ObjectStoreConfig};
 use crate::time::path_segment;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -65,6 +65,12 @@ pub struct WorkerArgs {
     pub policy_file: PathBuf,
     pub max_messages: Option<usize>,
     pub exit_on_idle: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayInputKeyPage {
+    pub keys: Vec<String>,
+    pub next_start_after: Option<String>,
 }
 
 pub struct CandidateWorker {
@@ -359,13 +365,33 @@ impl CandidateWorker {
         prefix: &str,
         max_keys: usize,
     ) -> AppResult<Vec<String>> {
-        let mut keys = self.input_store.list_keys(prefix, max_keys).await?;
+        self.list_replay_input_key_page(prefix, max_keys, None)
+            .await
+            .map(|page| page.keys)
+    }
+
+    pub async fn list_replay_input_key_page(
+        &self,
+        prefix: &str,
+        max_keys: usize,
+        start_after: Option<&str>,
+    ) -> AppResult<ReplayInputKeyPage> {
+        let ListKeysPage {
+            mut keys,
+            next_start_after,
+        } = self
+            .input_store
+            .list_keys_page(prefix, max_keys, start_after)
+            .await?;
         keys.retain(|key| {
             let normalized = key.to_ascii_lowercase();
             normalized.ends_with(".json") || normalized.ends_with(".jsonl")
         });
         keys.sort();
-        Ok(keys)
+        Ok(ReplayInputKeyPage {
+            keys,
+            next_start_after,
+        })
     }
 
     async fn write_and_publish_result(&self, result: &CandidateProcessingResult) -> AppResult<()> {

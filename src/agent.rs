@@ -8,6 +8,7 @@ use crate::telemetry;
 use crate::time::now_ms;
 use crate::worker::{CandidateWorker, WorkerArgs, worker_help};
 use serde_json::json;
+use std::collections::HashMap;
 use std::time::Duration;
 
 const DEFAULT_REPAIR_INTERVAL_SECS: u64 = 3_600;
@@ -35,6 +36,30 @@ struct RepairCycleReport {
     keys_processed: usize,
     keys_skipped_stale_revision: usize,
     keys_failed: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct RepairScanCursors {
+    start_after_by_prefix: HashMap<String, String>,
+}
+
+impl RepairScanCursors {
+    fn start_after(&self, prefix: &str) -> Option<&str> {
+        self.start_after_by_prefix.get(prefix).map(String::as_str)
+    }
+
+    fn update_after_page(&mut self, prefix: &str, next_start_after: Option<String>) -> bool {
+        match next_start_after {
+            Some(value) => {
+                self.start_after_by_prefix.insert(prefix.to_owned(), value);
+                true
+            }
+            None => {
+                self.start_after_by_prefix.remove(prefix);
+                false
+            }
+        }
+    }
 }
 
 impl AgentArgs {
@@ -102,6 +127,7 @@ pub async fn run_agent(args: AgentArgs) -> AppResult<AgentReport> {
     let mut repair_cycles_completed = 0usize;
     let mut last_idle_log_ms = 0i64;
     let mut next_repair_after_ms = now_ms();
+    let mut repair_scan_cursors = RepairScanCursors::default();
     let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
 
@@ -134,7 +160,13 @@ pub async fn run_agent(args: AgentArgs) -> AppResult<AgentReport> {
                         last_idle_log_ms,
                     )?;
                     if repair_due(&args, next_repair_after_ms) {
-                        let report = run_repair_cycle(&agent_run_id, &worker, &args).await?;
+                        let report = run_repair_cycle(
+                            &agent_run_id,
+                            &worker,
+                            &args,
+                            &mut repair_scan_cursors,
+                        )
+                        .await?;
                         repair_cycles_completed += 1;
                         next_repair_after_ms = now_ms()
                             + Duration::from_secs(args.repair_interval_secs).as_millis() as i64;
@@ -200,6 +232,7 @@ async fn run_repair_cycle(
     agent_run_id: &str,
     worker: &CandidateWorker,
     args: &AgentArgs,
+    repair_scan_cursors: &mut RepairScanCursors,
 ) -> AppResult<RepairCycleReport> {
     telemetry::info(
         "agent_repair_cycle_started",
@@ -212,18 +245,28 @@ async fn run_repair_cycle(
 
     let mut all_keys = Vec::new();
     for prefix in &args.repair_input_prefixes {
-        let keys = worker
-            .list_replay_input_keys(prefix, args.repair_max_keys_per_prefix)
+        let scan_start_after = repair_scan_cursors.start_after(prefix).map(str::to_owned);
+        let page = worker
+            .list_replay_input_key_page(
+                prefix,
+                args.repair_max_keys_per_prefix,
+                scan_start_after.as_deref(),
+            )
             .await?;
+        let cursor_continues =
+            repair_scan_cursors.update_after_page(prefix, page.next_start_after.clone());
         telemetry::info(
             "agent_repair_prefix_scanned",
             json!({
                 "agent_run_id": agent_run_id,
                 "input_prefix": prefix,
-                "keys": keys.len(),
+                "scan_start_after": scan_start_after,
+                "next_start_after": page.next_start_after,
+                "cursor_continues": cursor_continues,
+                "keys": page.keys.len(),
             }),
         )?;
-        all_keys.extend(keys);
+        all_keys.extend(page.keys);
     }
     all_keys.sort();
     all_keys.dedup();
@@ -394,5 +437,44 @@ mod tests {
         .expect("args parse")
         .expect("args present");
         assert!(!args.repair_enabled);
+    }
+
+    #[test]
+    fn repair_cursor_advances_until_page_exhaustion() {
+        let mut cursors = RepairScanCursors::default();
+        let prefix = "structured-intel-packet/schema=structured_intel_packet_v1/";
+
+        assert_eq!(cursors.start_after(prefix), None);
+        assert!(cursors.update_after_page(prefix, Some("key-000500.jsonl".to_owned())));
+        assert_eq!(cursors.start_after(prefix), Some("key-000500.jsonl"));
+
+        assert!(cursors.update_after_page(prefix, Some("key-001000.jsonl".to_owned())));
+        assert_eq!(cursors.start_after(prefix), Some("key-001000.jsonl"));
+
+        assert!(!cursors.update_after_page(prefix, None));
+        assert_eq!(cursors.start_after(prefix), None);
+    }
+
+    #[test]
+    fn repair_cursors_are_tracked_per_prefix() {
+        let mut cursors = RepairScanCursors::default();
+
+        cursors.update_after_page("prefix-a/", Some("prefix-a/key-1.jsonl".to_owned()));
+        cursors.update_after_page("prefix-b/", Some("prefix-b/key-1.jsonl".to_owned()));
+        assert_eq!(
+            cursors.start_after("prefix-a/"),
+            Some("prefix-a/key-1.jsonl")
+        );
+        assert_eq!(
+            cursors.start_after("prefix-b/"),
+            Some("prefix-b/key-1.jsonl")
+        );
+
+        cursors.update_after_page("prefix-a/", None);
+        assert_eq!(cursors.start_after("prefix-a/"), None);
+        assert_eq!(
+            cursors.start_after("prefix-b/"),
+            Some("prefix-b/key-1.jsonl")
+        );
     }
 }
