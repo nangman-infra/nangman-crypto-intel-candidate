@@ -127,7 +127,9 @@ inside the research batch selection window, the report marks the symbol as
 `candidate_evidence_outside_research_batch_selection` with primary blocker
 `research_batch_scan_window`. That case should widen the candidate scan or build
 a focused manifest from the existing evidence, not trigger market-context
-backfill or source crawling.
+backfill or source crawling. The per-symbol `evidence_contract` includes full
+`evidence_refs` plus a short `sample_evidence_refs` preview so research tooling
+can build a focused manifest without another candidate scan.
 
 To materialize those local inputs from the currently deployed ECS candidate
 agent, use the read-only export helper. It reads the task definition to discover

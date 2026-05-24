@@ -275,8 +275,18 @@ jq -n \
       | ($horizons | length) > 0
         and all($horizons[]; (horizon_ms(.) != null and horizon_ms(.) <= 259200000));
 
+    def evidence_ref_values($matches):
+      [
+        $matches[]
+        | (.bundle_key? // .key? // .storage_uri? // empty)
+      ]
+      | unique
+      | sort;
+
     def evidence_contract_summary($matches):
       {
+        evidence_ref_count:(evidence_ref_values($matches) | length),
+        evidence_refs:evidence_ref_values($matches),
         research_eligible_count:([$matches[] | select(.research_eligible == true)] | length),
         approved_universe_count:([$matches[] | select(.approved_universe_symbol == true)] | length),
         horizon_contract_valid_count:([$matches[] | select(evidence_horizon_contract_valid)] | length),
@@ -298,13 +308,7 @@ jq -n \
           | iso_ms
         ),
         sample_evidence_refs:(
-          [
-            $matches[]
-            | (.bundle_key? // .key? // .storage_uri? // empty)
-          ]
-          | unique
-          | sort
-          | .[0:10]
+          evidence_ref_values($matches) | .[0:10]
         )
       };
 
