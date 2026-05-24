@@ -81,10 +81,12 @@ intel-candidate-replay-worker --help
 
 Use the candidate coverage gap diagnosis when `research-app` reports
 `candidate_generation_coverage`. It reads a local
-`research_horizon_status_checkpoint_v1` file and separates approved major-50
-symbols that still have no candidate from candidates that have not reached
-research replay or promotion. It does not write S3, start ECS, switch dispatcher
-mode, or create shadow/paper/live artifacts.
+`research_horizon_status_checkpoint_v1` file or a read-only `research-app`
+loop-state check output and separates approved major-50 symbols that still have
+no candidate from candidates that have not reached research replay or
+promotion. It emits a machine-readable `next_decision` for the candidate
+coverage handoff. It does not write S3, start ECS, switch dispatcher mode, or
+create shadow/paper/live artifacts.
 
 ```bash
 cd /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app
@@ -92,6 +94,12 @@ cd /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app
 scripts/diagnose-candidate-coverage-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/retest-horizon-status.json \
   > /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-coverage-gap-diagnosis.json
+```
+
+```bash
+scripts/diagnose-candidate-coverage-gaps.sh \
+  /tmp/nangman-crypto/research-loop-state.json \
+  /tmp/nangman-crypto/candidate-coverage-gap-diagnosis.json
 ```
 
 Then use the candidate source gap diagnosis to split the missing approved
