@@ -53,44 +53,87 @@ jq \
   --arg status_file "$STATUS_FILE" \
   '
     def unique_sorted: unique | sort;
+    def canonical_symbol:
+      (tostring | ascii_upcase | gsub("[^A-Z0-9]"; "")) as $symbol
+      | if (($symbol | length) > 4 and ($symbol | endswith("USDT"))) then $symbol[0:-4]
+        elif (($symbol | length) > 6 and ($symbol | endswith("USDC"))) then $symbol[0:-4]
+        else $symbol
+        end;
+    def normalized_symbol_list:
+      map(canonical_symbol)
+      | map(select(length > 0))
+      | unique_sorted;
+    def require_supported_input:
+      if .schema_version == "research_horizon_status_checkpoint_v1" then .
+      elif (
+        ((.stage_state? | type) == "object")
+        and ((.major50_universe? | type) == "object")
+        and ((.recent_candidates? | type) == "object")
+      ) then .
+      else
+        error(
+          "unsupported research status schema: "
+          + (.schema_version // "unknown")
+          + "; expected research_horizon_status_checkpoint_v1 or check-loop-state output"
+        )
+      end;
     def stage_count($name; $fallback):
       (.research_factory_gap_summary.stage_counts[$name] // $fallback);
     def gap_count($name; $fallback):
       (.research_factory_gap_summary.gap_counts[$name] // $fallback);
+    def approved_symbols:
+      (
+        .major50_state.approved_symbols
+        // .major50_universe.approved_symbols
+        // []
+      )
+      | normalized_symbol_list;
+    def candidate_symbols:
+      (
+        .research_factory_progression.symbols.candidate_generated
+        // .recent_candidates.distinct_candidate_symbols
+        // .selected_symbols
+        // []
+      )
+      | normalized_symbol_list;
+    def research_replayed_symbols:
+      (
+        .research_factory_progression.symbols.research_replayed
+        // .latest_research_report.top_symbols
+        // []
+      )
+      | normalized_symbol_list;
+    def promoted_symbols:
+      (
+        .research_factory_progression.symbols.promoted
+        // []
+      )
+      | normalized_symbol_list;
 
-    . as $status
+    require_supported_input as $status
     | (
         $status.coverage_gaps.approved_symbols_without_candidate
         // $status.major50_state.approved_symbols_without_selected_candidate
+        // (approved_symbols - candidate_symbols)
         // []
-        | unique_sorted
+        | normalized_symbol_list
       ) as $approved_without_candidate
     | (
         $status.coverage_gaps.candidate_symbols_without_replay
+        // (candidate_symbols - research_replayed_symbols)
         // []
-        | unique_sorted
+        | normalized_symbol_list
       ) as $candidate_without_replay
     | (
         $status.coverage_gaps.replayed_symbols_without_promotion
+        // $status.coverage_gaps.replayed_symbols_without_promotion_ready
+        // (research_replayed_symbols - promoted_symbols)
         // []
-        | unique_sorted
+        | normalized_symbol_list
       ) as $replayed_without_promotion
-    | (
-        $status.research_factory_progression.symbols.candidate_generated
-        // $status.selected_symbols
-        // []
-        | unique_sorted
-      ) as $candidate_symbols
-    | (
-        $status.research_factory_progression.symbols.research_replayed
-        // []
-        | unique_sorted
-      ) as $research_replayed_symbols
-    | (
-        $status.research_factory_progression.symbols.promoted
-        // []
-        | unique_sorted
-      ) as $promoted_symbols
+    | (candidate_symbols) as $candidate_symbols
+    | (research_replayed_symbols) as $research_replayed_symbols
+    | (promoted_symbols) as $promoted_symbols
     | (
         if ($approved_without_candidate | length) > 0 then "candidate_generation_coverage"
         elif ($candidate_without_replay | length) > 0 then "research_replay_coverage"
@@ -125,8 +168,8 @@ jq \
         },
         coverage:{
           blocking_stage:$blocking_stage,
-          major50_observed_symbol_count:stage_count("major50_observed"; ($status.major50_state.observed_symbol_count // null)),
-          major50_approved_symbol_count:stage_count("major50_approved"; ($status.major50_state.approved_symbol_count // null)),
+          major50_observed_symbol_count:stage_count("major50_observed"; ($status.major50_state.observed_symbol_count // $status.major50_universe.observed_symbol_count // null)),
+          major50_approved_symbol_count:stage_count("major50_approved"; ($status.major50_state.approved_symbol_count // $status.major50_universe.approved_symbol_count // null)),
           candidate_generated_symbol_count:stage_count("candidate_generated"; ($candidate_symbols | length)),
           research_replayed_symbol_count:stage_count("research_replayed"; ($research_replayed_symbols | length)),
           promotion_ready_symbol_count:stage_count("promotion_ready"; 0),
