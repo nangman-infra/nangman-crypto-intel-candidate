@@ -129,6 +129,7 @@ jq -n \
         "${MARKET_L0_BUCKET}",
         "--l0-spool-root",
         "${MARKET_L0_SPOOL_ROOT}",
+        "--disable-s3-retention",
         "--aws-region",
         "${AWS_REGION}"
       ];
@@ -158,6 +159,7 @@ jq -n \
         ($window_ms | tostring),
         "--schedule-interval-ms",
         ($schedule_interval_ms | tostring),
+        "--disable-s3-retention",
         "--aws-region",
         "${AWS_REGION}"
       ];
@@ -181,6 +183,7 @@ jq -n \
         ($end_ms | tostring),
         "--window-ms",
         ($window_ms | tostring),
+        "--disable-s3-retention",
         "--aws-region",
         "${AWS_REGION}"
       ];

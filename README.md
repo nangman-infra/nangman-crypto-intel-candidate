@@ -173,7 +173,8 @@ scripts/build-market-l1-recovery-execution-manifest.sh \
 The approval runner checkpoints each step and can resume already completed
 steps. Without the explicit approval phrase it can only dry-run. A non-dry run
 executes `market-backfill` and `market-normalize`, so it writes Market-L0/L1 S3
-objects.
+objects. Recovery commands disable S3 retention cleanup so bulk recovery and
+bucket cleanup remain separate operator actions.
 
 ```bash
 INTEL_CANDIDATE_MARKET_L1_RECOVERY_DRY_RUN=true \
