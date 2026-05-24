@@ -75,6 +75,50 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || secrets.SONAR_HOST_URL }}
 
+      - name: Print Quality Gate Conditions
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          report_file=".scannerwork/report-task.txt"
+          if [[ ! -f "$report_file" ]]; then
+            echo "Sonar report task file is missing"
+            exit 0
+          fi
+
+          server_url="$(sed -n 's/^serverUrl=//p' "$report_file")"
+          ce_task_url="$(sed -n 's/^ceTaskUrl=//p' "$report_file")"
+          task_json=""
+          for _ in {1..60}; do
+            task_json="$(curl -fsS -u "$SONAR_TOKEN:" "$ce_task_url")"
+            task_status="$(jq -r '.task.status' <<<"$task_json")"
+            case "$task_status" in
+              SUCCESS) break ;;
+              FAILED|CANCELED)
+                echo "$task_json" | jq '{ceTaskStatus:.task.status, ceTaskError:.task.errorMessage}'
+                exit 0
+                ;;
+            esac
+            sleep 5
+          done
+
+          analysis_id="$(jq -r '.task.analysisId // empty' <<<"$task_json")"
+          if [[ -z "$analysis_id" ]]; then
+            echo "$task_json" | jq '{ceTaskStatus:.task.status}'
+            exit 0
+          fi
+
+          curl -fsS -u "$SONAR_TOKEN:" \
+            "$server_url/api/qualitygates/project_status?analysisId=$analysis_id" \
+            | jq '{
+                qualityGateStatus: .projectStatus.status,
+                conditions: [
+                  .projectStatus.conditions[]
+                  | {metricKey, status, actualValue, errorThreshold, comparator}
+                ]
+              }'
+
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
         timeout-minutes: 5
