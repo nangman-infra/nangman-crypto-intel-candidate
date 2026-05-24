@@ -99,6 +99,7 @@ jq \
     def research_replayed_symbols:
       (
         .research_factory_progression.symbols.research_replayed
+        // .recent_research_report_coverage.replayed_symbols
         // .research_evidence.top_symbols
         // .best_current_approved_shard_batch.top_symbols
         // .latest_research_report.top_symbols
