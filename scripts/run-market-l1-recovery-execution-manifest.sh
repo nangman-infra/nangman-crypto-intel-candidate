@@ -245,7 +245,10 @@ for phase in "${phases[@]}"; do
       continue
     fi
 
-    mapfile -t command_args < <(jq -r '.command_args[]' "$step_file")
+    command_args=()
+    while IFS= read -r arg; do
+      command_args+=("$arg")
+    done < <(jq -r '.command_args[]' "$step_file")
     expanded_args=()
     for arg in "${command_args[@]}"; do
       expanded_args+=("$(replace_placeholder "$arg")")
