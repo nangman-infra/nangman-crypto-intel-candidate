@@ -114,12 +114,16 @@ symbol-resolution, and evidence-quality blockers.
 The source gap report also preserves `market_context_gap` details for approved
 major-50 symbols that were screened but did not become research candidates. In
 `intel_candidate_source_gap_diagnosis_v2`, the report separates ordinary
-market-context materialization gaps from terminal missing context tied to events
-older than the observed market-context floor. A symbol is marked
-`historical_market_l1_backfill_required` only when all of its terminal missing
-context packets fall before that floor; mixed cases keep their normal primary
-blocker while `summary.global_market_context_gap` and the per-symbol
-`historical_terminal_missing_context_present` field show the backlog that needs
+market-context materialization gaps from terminal missing context and pending
+context found in structured, screening, hypothesis, or evidence artifacts. A
+symbol is marked `historical_market_l1_backfill_required` only when all of its
+terminal missing context packets fall before that floor; symbols blocked by
+pending context are marked `pending_market_context_materialization` and include
+pending context records so the recovery planner can produce concrete Market-L1
+windows. Mixed cases keep their normal primary blocker while
+`summary.global_market_context_gap` and the per-symbol
+`historical_terminal_missing_context_present` or
+`historical_pending_context_present` fields show the backlog that needs
 historical Market-L1 backfill or stale-public-intel marking before research
 dispatch is opened.
 When approved, research-eligible candidate evidence already exists but was not
@@ -156,10 +160,10 @@ scripts/diagnose-candidate-source-gaps.sh \
   /tmp/nangman-crypto/research-current-approved-batch/<run-id>/candidate-source-gap-diagnosis.json
 ```
 
-If the source gap diagnosis reports terminal missing market context, turn it
-into a local Market-L1 recovery plan before running any backfill. The planner
-handles both historical gaps before the observed Market-L1 context floor and
-current or unknown terminal gaps at or after that floor. It emits packet-sized
+If the source gap diagnosis reports terminal missing or pending market context,
+turn it into a local Market-L1 recovery plan before running any backfill. The
+planner handles both historical gaps before the observed Market-L1 context floor
+and current or unknown gaps at or after that floor. It emits packet-sized
 recovery windows with placeholder market-ingest arguments. Those windows are
 aligned to the `market-normalize` schedule interval and include read-only L1
 index audit arguments so operators can prove which windows already exist before

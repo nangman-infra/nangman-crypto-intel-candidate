@@ -351,9 +351,13 @@ jq -n \
           backfill_step_count:($backfill_steps | length),
           normalize_step_count:($normalize_steps | length),
           post_audit_step_count:($post_audit_steps | length),
+          context_recovery_symbol_count:($plan.summary.context_recovery_symbol_count // null),
           terminal_missing_symbol_count:($plan.summary.terminal_missing_symbol_count // null),
+          pending_context_symbol_count:($plan.summary.pending_context_symbol_count // null),
           historical_symbol_count:($plan.summary.historical_symbol_count // null),
+          historical_pending_context_symbol_count:($plan.summary.historical_pending_context_symbol_count // null),
           current_or_unknown_terminal_missing_symbol_count:($plan.summary.current_or_unknown_terminal_missing_symbol_count // null),
+          current_or_unknown_pending_context_symbol_count:($plan.summary.current_or_unknown_pending_context_symbol_count // null),
           market_symbol_count:($by_market_symbol | length),
           market_symbols:($by_market_symbol | map(.market_symbol)),
           recovery_input_start_ms:($plan.summary.recovery_input_start_ms // null),
@@ -391,7 +395,9 @@ if [[ -n "$OUTPUT_FILE" ]]; then
     echo "market_l1_recovery_execution_manifest_output=$OUTPUT_FILE"
     jq -r '
       "source_recovery_window_count=\(.summary.source_recovery_window_count)",
+      "context_recovery_symbol_count=\(.summary.context_recovery_symbol_count)",
       "terminal_missing_symbol_count=\(.summary.terminal_missing_symbol_count)",
+      "pending_context_symbol_count=\(.summary.pending_context_symbol_count)",
       "backfill_step_count=\(.summary.backfill_step_count)",
       "normalize_step_count=\(.summary.normalize_step_count)",
       "post_audit_step_count=\(.summary.post_audit_step_count)",

@@ -265,22 +265,31 @@ jq -n \
     | [
         $gap.symbols[]?
         | ([
-            (.market_context_gap.historical_terminal_missing_context_records // [])[],
-            (.market_context_gap.current_or_unknown_terminal_missing_context_records // [])[]
-          ] | map(select(.event_basis_ms != null))) as $terminal_records
-        | select(($terminal_records | length) > 0)
+            ((.market_context_gap.historical_terminal_missing_context_records // [])[]
+              | . + {recovery_reason:"terminal_missing_market_context"}),
+            ((.market_context_gap.current_or_unknown_terminal_missing_context_records // [])[]
+              | . + {recovery_reason:"terminal_missing_market_context"}),
+            ((.market_context_gap.historical_pending_context_records // [])[]
+              | . + {recovery_reason:"pending_market_context_materialization"}),
+            ((.market_context_gap.current_or_unknown_pending_context_records // [])[]
+              | . + {recovery_reason:"pending_market_context_materialization"})
+          ] | map(select(.event_basis_ms != null))) as $context_records
+        | select(($context_records | length) > 0)
         | (.symbol) as $symbol
-        | ($terminal_records | map(.event_basis_ms) | min) as $min_ms
-        | ($terminal_records | map(.event_basis_ms) | max) as $max_ms
+        | ($context_records | map(.event_basis_ms) | min) as $min_ms
+        | ($context_records | map(.event_basis_ms) | max) as $max_ms
         | (($min_ms - $recovery_margin_ms) | clamp_positive) as $recovery_start_ms
         | (($max_ms + $recovery_margin_ms) | clamp_positive) as $recovery_end_ms
         | ([
-            $terminal_records[]
+            $context_records[]
             | (.event_basis_ms // null) as $event_ms
             | (($event_ms - $recovery_margin_ms) | clamp_positive | align_floor($normalize_schedule_interval_ms)) as $window_start_ms
             | (($event_ms + $recovery_margin_ms) | clamp_positive | align_ceil($normalize_schedule_interval_ms)) as $window_end_ms
             | {
                 packet_id:.packet_id,
+                artifact_family:(.artifact_family // null),
+                recovery_reason:(.recovery_reason // null),
+                market_context_status:(.market_context_status // null),
                 symbols:(.symbols // []),
                 event_basis_ms:$event_ms,
                 event_basis_at:($event_ms | iso_ms),
@@ -298,7 +307,9 @@ jq -n \
         | {
             symbol:.symbol,
             recovery_class:(
-              if .market_context_gap.historical_backfill_required // false
+              if (.market_context_gap.pending_context_packets // 0) > 0
+              then "pending_market_context_materialization"
+              elif .market_context_gap.historical_backfill_required // false
               then "full_historical_backfill_required"
               elif (.market_context_gap.historical_terminal_missing_context_present // false)
                 and (.market_context_gap.current_or_unknown_terminal_missing_context_present // false)
@@ -314,9 +325,29 @@ jq -n \
             terminal_missing_before_observed_context_floor:(.market_context_gap.terminal_missing_before_observed_context_floor // 0),
             terminal_missing_at_or_after_observed_context_floor:(.market_context_gap.terminal_missing_at_or_after_observed_context_floor // 0),
             terminal_missing_unknown_event_basis:(.market_context_gap.terminal_missing_unknown_event_basis // 0),
-            planned_terminal_record_count:($terminal_records | length),
+            pending_context_packets:(.market_context_gap.pending_context_packets // 0),
+            pending_before_observed_context_floor:(.market_context_gap.pending_before_observed_context_floor // 0),
+            pending_at_or_after_observed_context_floor:(.market_context_gap.pending_at_or_after_observed_context_floor // 0),
+            pending_unknown_event_basis:(.market_context_gap.pending_unknown_event_basis // 0),
+            planned_terminal_record_count:(
+              [
+                $context_records[]
+                | select(.recovery_reason == "terminal_missing_market_context")
+              ]
+              | length
+            ),
+            planned_pending_record_count:(
+              [
+                $context_records[]
+                | select(.recovery_reason == "pending_market_context_materialization")
+              ]
+              | length
+            ),
+            planned_context_record_count:($context_records | length),
             historical_terminal_missing_present:(.market_context_gap.historical_terminal_missing_context_present // false),
             current_or_unknown_terminal_missing_present:(.market_context_gap.current_or_unknown_terminal_missing_context_present // false),
+            historical_pending_context_present:(.market_context_gap.historical_pending_context_present // false),
+            current_or_unknown_pending_context_present:(.market_context_gap.current_or_unknown_pending_context_present // false),
             terminal_missing_event_basis_min_ms:$min_ms,
             terminal_missing_event_basis_min_at:($min_ms | iso_ms),
             terminal_missing_event_basis_max_ms:$max_ms,
@@ -337,7 +368,8 @@ jq -n \
               "rebuild_current_approved_research_batch_manifest",
               "keep_dispatcher_shadow_paper_live_closed_until_research_gate_passes"
             ],
-            sample_terminal_missing_context:(.market_context_gap.sample_terminal_missing_context // [])
+            sample_terminal_missing_context:(.market_context_gap.sample_terminal_missing_context // []),
+            sample_pending_context:(.market_context_gap.sample_pending_context // [])
           }
       ] as $symbols
     | ($symbols | map(.recovery_input_start_ms) | min) as $recovery_start_ms
@@ -376,13 +408,29 @@ jq -n \
           approved_symbols_without_candidate:($gap.summary.approved_symbols_without_candidate // null),
           source_gap_primary_blocker_counts:($gap.summary.primary_blocker_counts // []),
           global_market_context_gap:($gap.summary.global_market_context_gap // {}),
-          terminal_missing_symbol_count:($symbols | length),
+          context_recovery_symbol_count:($symbols | length),
+          terminal_missing_symbol_count:(
+            [$symbols[] | select((.terminal_missing_context_packets // 0) > 0)]
+            | length
+          ),
+          pending_context_symbol_count:(
+            [$symbols[] | select((.pending_context_packets // 0) > 0)]
+            | length
+          ),
           historical_symbol_count:(
             [$symbols[] | select(.historical_terminal_missing_present)]
             | length
           ),
+          historical_pending_context_symbol_count:(
+            [$symbols[] | select(.historical_pending_context_present)]
+            | length
+          ),
           current_or_unknown_terminal_missing_symbol_count:(
             [$symbols[] | select(.current_or_unknown_terminal_missing_present)]
+            | length
+          ),
+          current_or_unknown_pending_context_symbol_count:(
+            [$symbols[] | select(.current_or_unknown_pending_context_present)]
             | length
           ),
           full_historical_backfill_symbol_count:(
@@ -452,8 +500,11 @@ if [[ -n "$OUTPUT_FILE" ]]; then
     echo "market_l1_recovery_plan_output=$OUTPUT_FILE"
     jq -r '
       "terminal_missing_symbol_count=\(.summary.terminal_missing_symbol_count)",
+      "pending_context_symbol_count=\(.summary.pending_context_symbol_count)",
       "historical_symbol_count=\(.summary.historical_symbol_count)",
+      "historical_pending_context_symbol_count=\(.summary.historical_pending_context_symbol_count)",
       "current_or_unknown_terminal_missing_symbol_count=\(.summary.current_or_unknown_terminal_missing_symbol_count)",
+      "current_or_unknown_pending_context_symbol_count=\(.summary.current_or_unknown_pending_context_symbol_count)",
       "full_historical_backfill_symbol_count=\(.summary.full_historical_backfill_symbol_count)",
       "mixed_terminal_context_symbol_count=\(.summary.mixed_terminal_context_symbol_count)",
       "historical_terminal_context_symbol_count=\(.summary.historical_terminal_context_symbol_count)",
