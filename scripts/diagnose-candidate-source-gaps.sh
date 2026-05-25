@@ -190,6 +190,9 @@ jq -n \
     def packet_id:
       (.packet_id? // .input_packet_id? // .structured_packet_id? // .id? // "");
 
+    def supersedes_packet_id:
+      (.supersedes_packet_id? // .superseded_packet_id? // .lineage.supersedes_packet_id? // "");
+
     def reasons:
       [
         (.reasons? // []),
@@ -389,8 +392,29 @@ jq -n \
             end) as $symbols
         | $record + {
             __packet_id:($record | packet_id),
+            __supersedes_packet_id:($record | supersedes_packet_id),
             __symbols:$symbols
           }
+      ];
+
+    def current_records($records; $superseded_packet_ids):
+      [
+        $records[] as $record
+        | select(
+            ($record.__packet_id | length) == 0
+            or (($superseded_packet_ids | index($record.__packet_id)) == null)
+          )
+        | $record
+      ];
+
+    def superseded_records($records; $superseded_packet_ids):
+      [
+        $records[] as $record
+        | select(
+            ($record.__packet_id | length) > 0
+            and (($superseded_packet_ids | index($record.__packet_id)) != null)
+          )
+        | $record
       ];
 
     def records_for_symbol($records; $symbol):
@@ -414,22 +438,40 @@ jq -n \
 
     ($coverage[0]) as $gap
     | ($gap.gaps.approved_symbols_without_candidate // [] | map(canonical_symbol) | unique | sort) as $missing_symbols
-    | ($structured | map(. + {__packet_id:packet_id, __symbols:record_symbols})) as $structured_symbolized
+    | ($structured | map(. + {__packet_id:packet_id, __supersedes_packet_id:supersedes_packet_id, __symbols:record_symbols})) as $structured_all_symbolized
+    | symbolized($screening; $structured_all_symbolized) as $screening_all_symbolized
+    | symbolized($hypothesis; $structured_all_symbolized) as $hypothesis_all_symbolized
+    | symbolized($evidence; $structured_all_symbolized) as $evidence_all_symbolized
+    | ([
+        ($structured_all_symbolized[] | .__supersedes_packet_id),
+        ($screening_all_symbolized[] | .__supersedes_packet_id),
+        ($hypothesis_all_symbolized[] | .__supersedes_packet_id),
+        ($evidence_all_symbolized[] | .__supersedes_packet_id)
+      ] | map(select(length > 0)) | unique | sort) as $superseded_packet_ids
+    | current_records($structured_all_symbolized; $superseded_packet_ids) as $structured_symbolized
+    | current_records($screening_all_symbolized; $superseded_packet_ids) as $screening_symbolized
+    | current_records($hypothesis_all_symbolized; $superseded_packet_ids) as $hypothesis_symbolized
+    | current_records($evidence_all_symbolized; $superseded_packet_ids) as $evidence_symbolized
+    | superseded_records($structured_all_symbolized; $superseded_packet_ids) as $structured_superseded
+    | superseded_records($screening_all_symbolized; $superseded_packet_ids) as $screening_superseded
+    | superseded_records($hypothesis_all_symbolized; $superseded_packet_ids) as $hypothesis_superseded
+    | superseded_records($evidence_all_symbolized; $superseded_packet_ids) as $evidence_superseded
     | ([
         $structured_symbolized[]
         | select(is_available_market_context)
         | context_basis_ms
         | select(. != null)
       ] | min) as $observed_market_context_floor_ms
-    | symbolized($screening; $structured_symbolized) as $screening_symbolized
-    | symbolized($hypothesis; $structured_symbolized) as $hypothesis_symbolized
-    | symbolized($evidence; $structured_symbolized) as $evidence_symbolized
     | [
         $missing_symbols[] as $symbol
         | records_for_symbol($structured_symbolized; $symbol) as $structured_matches
         | records_for_symbol($screening_symbolized; $symbol) as $screening_matches
         | records_for_symbol($hypothesis_symbolized; $symbol) as $hypothesis_matches
         | records_for_symbol($evidence_symbolized; $symbol) as $evidence_matches
+        | records_for_symbol($structured_superseded; $symbol) as $structured_superseded_matches
+        | records_for_symbol($screening_superseded; $symbol) as $screening_superseded_matches
+        | records_for_symbol($hypothesis_superseded; $symbol) as $hypothesis_superseded_matches
+        | records_for_symbol($evidence_superseded; $symbol) as $evidence_superseded_matches
         | (evidence_contract_summary($evidence_matches)) as $evidence_contract
         | ([
             ($screening_matches[] | reasons[]),
@@ -635,7 +677,11 @@ jq -n \
               structured_packets:($structured_matches | length),
               screening_events:($screening_matches | length),
               hypothesis_states:($hypothesis_matches | length),
-              evidence_bundles:($evidence_matches | length)
+              evidence_bundles:($evidence_matches | length),
+              superseded_structured_packets:($structured_superseded_matches | length),
+              superseded_screening_events:($screening_superseded_matches | length),
+              superseded_hypothesis_states:($hypothesis_superseded_matches | length),
+              superseded_evidence_bundles:($evidence_superseded_matches | length)
             },
             evidence_contract:$evidence_contract,
             market_context_gap:$market_context_gap,
@@ -787,7 +833,19 @@ jq -n \
           global_candidate_classes:$global_classes,
           global_blocker_groups:$global_blocker_groups,
           global_rejection_reasons:$global_reasons,
-          global_market_context_gap:$global_market_context_gap
+          global_market_context_gap:$global_market_context_gap,
+          revision_filter:{
+            superseded_packet_ids:($superseded_packet_ids | length),
+            current_structured_packets:($structured_symbolized | length),
+            current_screening_events:($screening_symbolized | length),
+            current_hypothesis_states:($hypothesis_symbolized | length),
+            current_evidence_bundles:($evidence_symbolized | length),
+            superseded_structured_packets:($structured_superseded | length),
+            superseded_screening_events:($screening_superseded | length),
+            superseded_hypothesis_states:($hypothesis_superseded | length),
+            superseded_evidence_bundles:($evidence_superseded | length),
+            sample_superseded_packet_ids:($superseded_packet_ids[0:20])
+          }
         },
         symbols:$symbol_diagnostics,
         recommended_actions:(
