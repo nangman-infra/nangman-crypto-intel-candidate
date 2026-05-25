@@ -207,10 +207,8 @@ impl WorkerArgs {
 impl Default for WorkerArgs {
     fn default() -> Self {
         let input_store = ObjectStoreConfig {
-            endpoint: None,
             bucket: DEFAULT_INPUT_BUCKET.to_owned(),
             region: DEFAULT_AWS_REGION.to_owned(),
-            force_path_style: false,
             profile: None,
             access_key_id: None,
             secret_access_key: None,

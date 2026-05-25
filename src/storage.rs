@@ -7,14 +7,11 @@ use aws_sdk_s3::operation::list_objects_v2::builders::ListObjectsV2FluentBuilder
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::Object;
 use aws_types::region::Region;
-use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectStoreConfig {
-    pub endpoint: Option<String>,
     pub bucket: String,
     pub region: String,
-    pub force_path_style: bool,
     pub profile: Option<String>,
     pub access_key_id: Option<String>,
     pub secret_access_key: Option<String>,
@@ -320,43 +317,12 @@ fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
     if config.region.trim().is_empty() {
         return Err(AppError::config("object store region is required"));
     }
-    if config.endpoint.is_some() || env_s3_endpoint_is_set() {
-        return Err(AppError::config(
-            "custom S3 endpoints are unsupported; use AWS S3 with IAM",
-        ));
-    }
-    if config.force_path_style || env_path_style_is_set() {
-        return Err(AppError::config(
-            "path-style S3 endpoints are unsupported; use AWS S3 with IAM",
-        ));
-    }
     if config.access_key_id.is_some() != config.secret_access_key.is_some() {
         return Err(AppError::config(
             "object store explicit credentials require both access_key_id and secret_access_key",
         ));
     }
     Ok(())
-}
-
-fn env_s3_endpoint_is_set() -> bool {
-    env_non_empty("AWS_ENDPOINT_URL_S3") || env_non_empty("AWS_ENDPOINT_URL")
-}
-
-fn env_path_style_is_set() -> bool {
-    env_bool("AWS_S3_FORCE_PATH_STYLE") || env_bool("AWS_USE_PATH_STYLE_ENDPOINT")
-}
-
-fn env_non_empty(name: &str) -> bool {
-    env::var(name)
-        .ok()
-        .is_some_and(|value| !value.trim().is_empty())
-}
-
-fn env_bool(name: &str) -> bool {
-    env::var(name)
-        .ok()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
 }
 
 fn is_precondition_failure(message: &str) -> bool {
@@ -370,42 +336,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_custom_endpoint() {
-        let config = ObjectStoreConfig {
-            endpoint: Some("https://s3.example.com".to_owned()),
-            bucket: "bucket".to_owned(),
-            region: "ap-northeast-2".to_owned(),
-            force_path_style: false,
-            profile: None,
-            access_key_id: None,
-            secret_access_key: None,
-        };
-        let err = validate_config(&config).unwrap_err();
-        assert!(err.to_string().contains("custom S3 endpoints"));
-    }
-
-    #[test]
-    fn rejects_path_style_endpoint_mode() {
-        let config = ObjectStoreConfig {
-            endpoint: None,
-            bucket: "bucket".to_owned(),
-            region: "ap-northeast-2".to_owned(),
-            force_path_style: true,
-            profile: None,
-            access_key_id: None,
-            secret_access_key: None,
-        };
-        let err = validate_config(&config).unwrap_err();
-        assert!(err.to_string().contains("path-style S3 endpoints"));
-    }
-
-    #[test]
     fn rejects_public_doc_bucket_placeholder() {
         let config = ObjectStoreConfig {
-            endpoint: None,
             bucket: "nangman-crypto-dev-intel-candidate-<account-suffix>".to_owned(),
             region: "ap-northeast-2".to_owned(),
-            force_path_style: false,
             profile: None,
             access_key_id: None,
             secret_access_key: None,
