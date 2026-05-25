@@ -22,6 +22,7 @@ struct ReplayArgs {
     report_prefix: String,
     result_prefix: String,
     fail_on_record_error: bool,
+    write_artifacts: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -124,6 +125,9 @@ async fn run() -> AppResult<()> {
     for key in &all_keys {
         let replay_result = async {
             let result = worker.score_s3_key(key, created_at_ms).await?;
+            if args.write_artifacts {
+                worker.write_replay_artifacts(&result).await?;
+            }
             let result_key =
                 replay_result_key(&args.result_prefix, created_at_ms, &replay_run_id, key);
             let mut result_record = ReplayResultRecord {
@@ -167,6 +171,7 @@ async fn run() -> AppResult<()> {
                         "candidate_class": result.screening_event.candidate_class.as_policy_key(),
                         "research_eligible": result.screening_event.research_eligible,
                         "replay_result_s3_key": result_key,
+                        "replay_artifacts_written": args.write_artifacts,
                         "evidence_bundle_created": result.evidence_bundle.is_some(),
                         "hypothesis_state_created": result.hypothesis_state.is_some(),
                     }),
@@ -255,6 +260,7 @@ fn parse_args(values: impl Iterator<Item = String>) -> AppResult<Option<ReplayAr
     let mut report_prefix = "candidate-replay-report".to_owned();
     let mut result_prefix = "candidate-replay-result".to_owned();
     let mut fail_on_record_error = true;
+    let mut write_artifacts = false;
     let mut worker_args = Vec::new();
     let mut index = 0usize;
     while index < raw.len() {
@@ -290,6 +296,9 @@ fn parse_args(values: impl Iterator<Item = String>) -> AppResult<Option<ReplayAr
             "--replay-continue-on-record-error" => {
                 fail_on_record_error = false;
             }
+            "--replay-write-artifacts" => {
+                write_artifacts = true;
+            }
             value => worker_args.push(value.to_owned()),
         }
         index += 1;
@@ -308,6 +317,7 @@ fn parse_args(values: impl Iterator<Item = String>) -> AppResult<Option<ReplayAr
         report_prefix,
         result_prefix,
         fail_on_record_error,
+        write_artifacts,
     }))
 }
 
@@ -396,6 +406,7 @@ Replay-specific flags:
   --replay-created-at-ms <timestamp-ms>      Optional deterministic report/output time.
   --replay-report-prefix <s3-prefix>         Default: candidate-replay-report
   --replay-result-prefix <s3-prefix>         Default: candidate-replay-result
+  --replay-write-artifacts                   Also writes screening/evidence/hypothesis artifacts for research handoff.
   --replay-continue-on-record-error          Write the report and exit 0 even when individual keys fail.
 
 Worker flags:
@@ -444,6 +455,7 @@ mod tests {
                 "123",
                 "--replay-result-prefix",
                 "candidate-replay/custom",
+                "--replay-write-artifacts",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -457,6 +469,7 @@ mod tests {
         assert_eq!(args.max_keys_per_prefix, 7);
         assert_eq!(args.created_at_ms, Some(123));
         assert_eq!(args.result_prefix, "candidate-replay/custom");
+        assert!(args.write_artifacts);
         assert_eq!(args.worker.nats.url, "nats://127.0.0.1:4222");
     }
 }
