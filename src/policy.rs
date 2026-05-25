@@ -168,6 +168,16 @@ mod tests {
     }
 
     #[test]
+    fn general_intel_tracks_short_mid_and_daily_horizons() {
+        let policy = repo_policy();
+
+        assert_eq!(
+            policy.event_type_to_allowed_horizons.get("other"),
+            Some(&vec!["1h".to_owned(), "4h".to_owned(), "24h".to_owned()])
+        );
+    }
+
+    #[test]
     fn policy_validation_rejects_horizon_beyond_research_contract() {
         let mut policy = repo_policy();
         policy

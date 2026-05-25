@@ -83,7 +83,7 @@
     "listing": ["4h", "24h", "72h"],
     "exchange_delisting": ["4h", "24h", "72h"],
     "delisting": ["4h", "24h", "72h"],
-    "other": ["24h"]
+    "other": ["1h", "4h", "24h"]
   },
   "market_context_pending_policy": {
     "default_class": "observe_only",
