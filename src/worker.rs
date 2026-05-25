@@ -32,18 +32,23 @@ pub const DEFAULT_HYPOTHESIS_STATE_SUBJECT: &str = "intel_candidate_hypothesis_s
 pub const DEFAULT_HEALTH_SUBJECT: &str = "intel_candidate_health_event.created";
 const REVISION_INDEX_MAX_KEYS: usize = 256;
 
-fn revision_index_prefix(packet_family_id: &str) -> String {
+fn revision_index_prefix(packet_family_id: &str, scoring_policy_version: &str) -> String {
     format!(
-        "candidate-revision-index/schema={}/packet_family_id={}/",
+        "candidate-revision-index/schema={}/packet_family_id={}/scoring_policy={}/",
         CANDIDATE_REVISION_INDEX_SCHEMA_VERSION,
-        path_segment(packet_family_id)
+        path_segment(packet_family_id),
+        path_segment(scoring_policy_version)
     )
 }
 
-fn revision_index_key(packet_family_id: &str, revision: u32) -> String {
+fn revision_index_key(
+    packet_family_id: &str,
+    scoring_policy_version: &str,
+    revision: u32,
+) -> String {
     format!(
         "{}revision={:010}.json",
-        revision_index_prefix(packet_family_id),
+        revision_index_prefix(packet_family_id, scoring_policy_version),
         revision
     )
 }
@@ -527,7 +532,10 @@ impl CandidateWorker {
 
     async fn is_stale_revision(&self, packet: &StructuredIntelPacket) -> AppResult<bool> {
         let Some(index) = self
-            .latest_revision_index(effective_packet_family_id(packet))
+            .latest_revision_index(
+                effective_packet_family_id(packet),
+                &self.policy.policy_version,
+            )
             .await?
         else {
             return Ok(false);
@@ -546,6 +554,7 @@ impl CandidateWorker {
         let index = CandidateRevisionIndex {
             schema_version: CANDIDATE_REVISION_INDEX_SCHEMA_VERSION.to_owned(),
             packet_family_id: effective_packet_family_id(packet).to_owned(),
+            scoring_policy_version: self.policy.policy_version.clone(),
             latest_packet_revision: packet.revision,
             latest_packet_id: packet.packet_id.clone(),
             latest_screening_event_id: result.screening_event.screening_event_id.clone(),
@@ -554,7 +563,11 @@ impl CandidateWorker {
         };
         self.output_store
             .put_bytes_idempotent(
-                &revision_index_key(effective_packet_family_id(packet), packet.revision),
+                &revision_index_key(
+                    effective_packet_family_id(packet),
+                    &self.policy.policy_version,
+                    packet.revision,
+                ),
                 serde_json::to_vec_pretty(&index)?,
                 "application/json",
             )
@@ -564,12 +577,13 @@ impl CandidateWorker {
     async fn latest_revision_index(
         &self,
         packet_family_id: &str,
+        scoring_policy_version: &str,
     ) -> AppResult<Option<CandidateRevisionIndex>> {
         let mut latest: Option<(u32, String)> = None;
         for key in self
             .output_store
             .list_keys(
-                &revision_index_prefix(packet_family_id),
+                &revision_index_prefix(packet_family_id, scoring_policy_version),
                 REVISION_INDEX_MAX_KEYS,
             )
             .await?
@@ -922,6 +936,14 @@ mod tests {
 "#;
         let value: serde_json::Value = read_single_json_or_jsonl(jsonl, Path::new("x")).unwrap();
         assert_eq!(value["value"], 2);
+    }
+
+    #[test]
+    fn revision_index_key_is_scoped_by_scoring_policy() {
+        assert_eq!(
+            revision_index_key("family/001", "intel_candidate_scoring_v2", 1),
+            "candidate-revision-index/schema=intel_candidate_revision_index_v1/packet_family_id=family_001/scoring_policy=intel_candidate_scoring_v2/revision=0000000001.json"
+        );
     }
 
     #[test]

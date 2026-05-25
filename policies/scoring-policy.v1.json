@@ -1,5 +1,5 @@
 {
-  "policy_version": "intel_candidate_scoring_v1",
+  "policy_version": "intel_candidate_scoring_v2",
   "schema_version": "intel_candidate_scoring_policy_v1",
   "hard_gates": {
     "forbid_missing_evidence": true,

@@ -171,6 +171,7 @@ mod tests {
     fn general_intel_tracks_short_mid_and_daily_horizons() {
         let policy = repo_policy();
 
+        assert_eq!(policy.policy_version, "intel_candidate_scoring_v2");
         assert_eq!(
             policy.event_type_to_allowed_horizons.get("other"),
             Some(&vec!["1h".to_owned(), "4h".to_owned(), "24h".to_owned()])
