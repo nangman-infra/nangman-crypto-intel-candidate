@@ -42,7 +42,8 @@ Repair scans are bounded by prefix, interval, key count, and page count. For the
 
 ## Canonical storage contract
 
-S3 is the durable source of truth. NATS is only the pointer/event bus. Runtime storage uses AWS S3 with IAM. Custom S3-compatible endpoint configuration is not part of the app contract.
+S3 is the durable source of truth. NATS is only the pointer/event bus. Runtime
+storage uses AWS S3 with IAM.
 
 Input:
 
