@@ -120,8 +120,11 @@ symbol is marked `historical_market_l1_backfill_required` only when all of its
 terminal missing context packets fall before that floor; symbols blocked by
 pending context are marked `pending_market_context_materialization` and include
 pending context records so the recovery planner can produce concrete Market-L1
-windows. Mixed cases keep their normal primary blocker while
-`summary.global_market_context_gap` and the per-symbol
+windows. Unavailable context without a basis timestamp is marked
+`market_context_basis_missing`, because it must be refreshed or rehydrated
+before the planner can build a safe backfill window. Mixed cases keep their
+normal primary blocker while `summary.global_market_context_gap` and the
+per-symbol
 `historical_terminal_missing_context_present` or
 `historical_pending_context_present` fields show the backlog that needs
 historical Market-L1 backfill or stale-public-intel marking before research

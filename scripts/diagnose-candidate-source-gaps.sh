@@ -227,6 +227,9 @@ jq -n \
     def is_pending_market_context:
       context_status == "pending";
 
+    def is_unavailable_market_context:
+      context_status == "unavailable";
+
     def is_available_market_context:
       (context_status) as $status
       | [
@@ -346,6 +349,9 @@ jq -n \
         elif (($market_context_gap.pending_materialization_required // false)
           and any($groups[]?; .blocker_group == "market_context_materialization"))
         then "pending_market_context_materialization"
+        elif (($market_context_gap.market_context_basis_missing_required // false)
+          and any($groups[]?; .blocker_group == "market_context_materialization"))
+        then "market_context_basis_missing"
         elif (($market_context_gap.historical_backfill_required // false)
           and any($groups[]?; .blocker_group == "market_context_materialization"))
         then "historical_market_l1_backfill_required"
@@ -466,6 +472,10 @@ jq -n \
             | select(is_pending_market_context)
           ]) as $pending_context_matches
         | ([
+            $market_context_matches[]
+            | select(is_unavailable_market_context)
+          ]) as $unavailable_context_matches
+        | ([
             $terminal_missing_context_matches[]
             | select(
                 $observed_market_context_floor_ms != null
@@ -525,6 +535,14 @@ jq -n \
               ]
               | length
             ),
+            unavailable_context_packets:($unavailable_context_matches | length),
+            unavailable_unknown_event_basis:(
+              [
+                $unavailable_context_matches[]
+                | select(.event_basis_ms == null)
+              ]
+              | length
+            ),
             available_context_packets:($available_context_packet_ids | length),
             historical_terminal_missing_context_present:(($historical_terminal_missing_context_matches | length) > 0),
             current_or_unknown_terminal_missing_context_present:(($current_or_unknown_terminal_missing_context_matches | length) > 0),
@@ -570,6 +588,13 @@ jq -n \
               and ($historical_terminal_missing_context_matches | length) == ($terminal_missing_context_matches | length)
             ),
             pending_materialization_required:(($pending_context_matches | length) > 0),
+            market_context_basis_missing_required:(
+              ($unavailable_context_matches | length) > 0
+              and ([
+                $unavailable_context_matches[]
+                | select(.event_basis_ms == null)
+              ] | length) == ($unavailable_context_matches | length)
+            ),
             sample_terminal_missing_context:(
               $terminal_missing_context_matches
               | sort_by(.event_basis_ms // 0)
@@ -577,6 +602,11 @@ jq -n \
             ),
             sample_pending_context:(
               $pending_context_matches
+              | sort_by(.event_basis_ms // 0)
+              | .[0:10]
+            ),
+            sample_unavailable_context:(
+              $unavailable_context_matches
               | sort_by(.event_basis_ms // 0)
               | .[0:10]
             ),
@@ -676,6 +706,10 @@ jq -n \
           [$symbol_diagnostics[] | select(.market_context_gap.current_or_unknown_pending_context_present // false)]
           | length
         ),
+        symbols_with_market_context_basis_missing:(
+          [$symbol_diagnostics[] | select(.market_context_gap.market_context_basis_missing_required // false)]
+          | length
+        ),
         symbols_requiring_full_historical_backfill:(
           [$symbol_diagnostics[] | select(.market_context_gap.historical_backfill_required // false)]
           | length
@@ -708,6 +742,16 @@ jq -n \
         pending_at_or_after_observed_context_floor:(
           reduce $symbol_diagnostics[] as $symbol (0;
             . + ($symbol.market_context_gap.pending_at_or_after_observed_context_floor // 0)
+          )
+        ),
+        unavailable_context_packets:(
+          reduce $symbol_diagnostics[] as $symbol (0;
+            . + ($symbol.market_context_gap.unavailable_context_packets // 0)
+          )
+        ),
+        unavailable_unknown_event_basis:(
+          reduce $symbol_diagnostics[] as $symbol (0;
+            . + ($symbol.market_context_gap.unavailable_unknown_event_basis // 0)
           )
         ),
         available_context_packets:(
@@ -770,6 +814,10 @@ jq -n \
             end,
             if any($symbol_diagnostics[]?; .primary_blocker == "pending_market_context_materialization")
               then "materialize_pending_market_context_or_refresh_structured_intel_before_research_dispatch"
+              else empty
+            end,
+            if any($symbol_diagnostics[]?; .primary_blocker == "market_context_basis_missing")
+              then "refresh_or_rehydrate_structured_intel_with_market_context_basis_before_research_dispatch"
               else empty
             end,
             if any($symbol_diagnostics[]?; .primary_blocker == "market_context_admissibility")
