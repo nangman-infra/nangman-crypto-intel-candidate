@@ -242,6 +242,26 @@ The example task definition is in:
 /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app/ecs/task-definition.example.json
 ```
 
+Mattermost runtime alert wrapper:
+
+```bash
+cd /Volumes/WD/Developments/nangman-crypto/apps/intel-candidate-app
+AWS_PROFILE="<local-aws-profile>" \
+AWS_REGION="ap-northeast-2" \
+INTEL_CANDIDATE_OUTPUT_S3_BUCKET="nangman-crypto-dev-intel-candidate-<account-suffix>" \
+NANGMAN_ALERT_WEBHOOK_URL="<mattermost-webhook-url>" \
+./scripts/send-runtime-alert.sh
+```
+
+`send-runtime-alert.sh` reads ECS service state, derives the active CloudWatch
+log group from the task definition, checks recent error logs, and optionally
+shows the latest candidate evidence bundle if
+`INTEL_CANDIDATE_OUTPUT_S3_BUCKET` is set. It sends P1 only when candidate
+runtime health is suspect. Success summaries are disabled by default; use
+`INTEL_CANDIDATE_ALERT_INCLUDE_SUCCESS=true` only for a temporary heartbeat.
+The wrapper is read-only and does not start ECS tasks, write S3, change
+dispatcher mode, or open paper/live/order execution.
+
 ## Quality gate
 
 Sonar coverage focuses on deterministic scoring, contracts, parsing, and artifact shaping. The long-running NATS/S3 orchestration modules, including `agent`, `live`, `storage`, and `worker`, are verified by compile, lint, container build, and deployment smoke checks rather than unit coverage because they depend on live external services.
