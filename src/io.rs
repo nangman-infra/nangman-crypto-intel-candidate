@@ -11,6 +11,12 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+mod tests;
+mod validation;
+
+use validation::{validate_output_dir, validate_output_key};
+
 pub fn read_structured_packets(path: &Path) -> AppResult<Vec<StructuredIntelPacket>> {
     read_json_array_or_jsonl(path)
 }
@@ -107,6 +113,8 @@ fn write_record<T>(output_dir: &Path, key: &str, record: &T) -> AppResult<PathBu
 where
     T: Serialize,
 {
+    validate_output_dir(output_dir)?;
+    validate_output_key(key)?;
     let path = output_dir.join(key);
     let parent = path.parent().ok_or_else(|| {
         AppError::validation(format!("output path has no parent: {}", path.display()))

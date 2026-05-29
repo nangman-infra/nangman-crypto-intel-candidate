@@ -17,10 +17,13 @@ fn main() {
     }) {
         Ok(summary) => {
             if summary.processed_packets > 0 {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&summary).unwrap_or_default()
-                );
+                match serde_json::to_string_pretty(&summary) {
+                    Ok(output) => println!("{output}"),
+                    Err(error) => {
+                        eprintln!("{error}");
+                        process::exit(1);
+                    }
+                }
             }
         }
         Err(error) => {
