@@ -1,4 +1,3 @@
-
 mod admission;
 mod bundle;
 mod helpers;
@@ -7,7 +6,6 @@ mod pipeline;
 mod score;
 #[cfg(test)]
 mod tests;
-
 
 #[cfg(test)]
 use bundle::research_priority_partition;

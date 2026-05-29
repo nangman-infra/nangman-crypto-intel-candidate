@@ -1,7 +1,5 @@
 use crate::error::AppResult;
-use crate::nats::{
-    CandidatePublisher, NatsConfig,
-};
+use crate::nats::{CandidatePublisher, NatsConfig};
 use crate::policy::{ScoringPolicy, load_policy};
 use crate::storage::{ObjectStore, ObjectStoreConfig};
 
