@@ -1,4 +1,9 @@
-use super::*;
+use crate::model::StructuredIntelPacket;
+use crate::policy::ScoringPolicy;
+use crate::scoring::MarketArtifactInputs;
+use crate::scoring::helpers::{
+    source_independence_ok_for_research, source_independence_ok_for_strong,
+};
 
 mod reasons;
 mod signals;

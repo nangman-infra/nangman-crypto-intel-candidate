@@ -1,4 +1,13 @@
-use super::*;
+use super::CandidateWorker;
+use super::revision::{
+    REVISION_INDEX_MAX_KEYS, parse_revision_from_key, revision_index_key, revision_index_prefix,
+};
+use crate::error::AppResult;
+use crate::model::{
+    CANDIDATE_REVISION_INDEX_SCHEMA_VERSION, CandidateProcessingResult, CandidateRevisionIndex,
+    StructuredIntelPacket,
+};
+use crate::scoring::effective_packet_family_id;
 
 impl CandidateWorker {
     pub(super) async fn is_stale_revision(

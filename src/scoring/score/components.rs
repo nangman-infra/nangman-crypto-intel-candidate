@@ -1,4 +1,6 @@
-use super::*;
+use crate::model::{ScoreBreakdown, StructuredIntelPacket, SymbolUniverseSnapshot};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::AdmissionState;
 
 mod contradiction;
 mod evidence_quality;

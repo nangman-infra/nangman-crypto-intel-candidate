@@ -1,4 +1,4 @@
-use super::*;
+use crate::model::ScoreComponent;
 
 pub(super) fn push_component(
     components: &mut Vec<ScoreComponent>,

@@ -1,4 +1,12 @@
-use super::super::*;
+use crate::model::{
+    CandidateClass, IntelCandidateEvidenceBundle, ScoreBreakdown, SelectedMarketArtifactTrace,
+    StructuredIntelPacket, SymbolUniverseSnapshot,
+};
+use crate::policy::ScoringPolicy;
+use crate::scoring::bundle::{
+    BundleBuildContext, build_evidence_bundle, research_bundle_block_reasons,
+    research_bundle_inputs,
+};
 
 pub(super) struct ResearchArtifactInput<'a> {
     pub(super) packet: &'a StructuredIntelPacket,

@@ -1,4 +1,5 @@
-use super::super::*;
+use crate::model::{ContradictionFlag, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
 use std::collections::BTreeSet;
 
 pub(super) fn forbidden_generated_terms(

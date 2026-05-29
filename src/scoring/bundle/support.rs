@@ -1,4 +1,6 @@
-use super::super::*;
+use crate::model::{StructuredIntelPacket, ValidationRequirements};
+use crate::policy::ValidationRequirementDefaults;
+use crate::scoring::admission::dedupe_strings;
 
 pub(super) fn evidence_refs(packet: &StructuredIntelPacket) -> Vec<String> {
     let mut refs = Vec::new();

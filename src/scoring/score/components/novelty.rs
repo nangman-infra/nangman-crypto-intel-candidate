@@ -1,5 +1,6 @@
 use super::helpers::push_component;
-use super::*;
+use crate::model::{ScoreComponent, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
 
 pub(super) fn push_novelty_score_component(
     components: &mut Vec<ScoreComponent>,

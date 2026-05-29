@@ -1,4 +1,6 @@
-use super::super::*;
+use crate::model::{SourceIndependenceSummary, StructuredIntelPacket, SymbolUniverseSnapshot};
+use crate::policy::ScoringPolicy;
+use std::collections::BTreeSet;
 
 pub(in crate::scoring) fn source_independence_ok_for_research(
     summary: &SourceIndependenceSummary,

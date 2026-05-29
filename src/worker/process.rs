@@ -1,4 +1,10 @@
-use super::*;
+use super::CandidateWorker;
+use super::content::{read_single_json_or_jsonl, validate_pointer_content_hash};
+use super::market::repair_raw_event_id;
+use crate::error::{AppError, AppResult};
+use crate::model::{CandidateProcessingResult, StructuredIntelPacket};
+use crate::nats::StructuredPointer;
+use std::path::Path;
 
 impl CandidateWorker {
     pub async fn process_pointer(

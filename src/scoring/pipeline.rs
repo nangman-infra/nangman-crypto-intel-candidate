@@ -1,4 +1,10 @@
-use super::*;
+use crate::model::{
+    CandidateProcessingResult, MarketFeatureDelta, MarketRegimeContext, StructuredIntelPacket,
+    SymbolUniverseSnapshot,
+};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::{AdmissionState, evaluate_admission};
+use crate::scoring::score::{calculate_score, classify_candidate};
 
 mod hypothesis_state;
 mod identity;

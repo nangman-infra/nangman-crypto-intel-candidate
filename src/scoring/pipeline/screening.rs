@@ -1,5 +1,10 @@
-use super::super::*;
 use super::identity::supersedes_screening_event_id;
+use crate::model::{
+    CandidateClass, IntelCandidateScreeningEvent, PRODUCER_APP, SCREENING_EVENT_SCHEMA_VERSION,
+    ScoreBreakdown, StructuredIntelPacket,
+};
+use crate::policy::ScoringPolicy;
+use crate::scoring::helpers::effective_packet_family_id;
 
 pub(super) struct ScreeningEventInput<'a> {
     pub(super) screening_event_id: String,

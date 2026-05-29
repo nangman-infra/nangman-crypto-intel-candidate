@@ -1,4 +1,6 @@
-use super::super::*;
+use crate::model::{STRUCTURED_PACKET_SCHEMA_VERSION, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
+use crate::scoring::helpers::symbol_resolution_ok;
 
 pub(super) fn has_valid_schema(packet: &StructuredIntelPacket) -> bool {
     packet.schema_version.as_deref() == Some(STRUCTURED_PACKET_SCHEMA_VERSION)

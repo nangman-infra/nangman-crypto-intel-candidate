@@ -1,5 +1,9 @@
-use super::super::*;
 use super::symbols::canonical_symbol_candidates;
+use crate::model::{MarketContextRef, SelectedMarketArtifactTrace, StructuredIntelPacket};
+use crate::scoring::MarketArtifactInputs;
+use crate::scoring::admission::{
+    is_usable_market_artifact_quality, normalize_market_artifact_quality,
+};
 
 pub(in crate::scoring) fn selected_derivatives_market_feature_delta(
     packet: &StructuredIntelPacket,

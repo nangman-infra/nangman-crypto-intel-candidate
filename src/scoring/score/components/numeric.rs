@@ -1,4 +1,5 @@
-use super::*;
+use crate::model::StructuredIntelPacket;
+use crate::scoring::admission::AdmissionState;
 
 pub(super) fn derivatives_numeric_baseline_resolved(
     packet: &StructuredIntelPacket,

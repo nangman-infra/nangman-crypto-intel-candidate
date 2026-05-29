@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::model::CandidateClass;
 
 pub(in crate::scoring) fn retryable_reasons(reasons: &[String]) -> Vec<String> {
     let retryable_markers = [

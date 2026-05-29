@@ -1,5 +1,7 @@
 use super::helpers::push_component;
-use super::*;
+use crate::model::ScoreComponent;
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::AdmissionState;
 
 pub(super) fn push_penalty_score_components(
     components: &mut Vec<ScoreComponent>,

@@ -1,4 +1,13 @@
-use super::*;
+use super::CandidateWorker;
+use super::content::read_single_json_or_jsonl;
+use super::market::{expand_market_feature_delta_summary, market_feature_deltas_satisfy_packet};
+use crate::error::AppResult;
+use crate::model::{
+    CandidateProcessingResult, MarketFeatureDelta, MarketFeatureDeltaSummary, MarketRegimeContext,
+    StructuredIntelPacket, SymbolUniverseSnapshot,
+};
+use crate::scoring::{MarketArtifactInputs, process_packet_with_artifacts};
+use std::path::Path;
 
 impl CandidateWorker {
     pub async fn score_s3_key(

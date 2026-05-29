@@ -1,6 +1,11 @@
 use super::*;
-use crate::model::{STRUCTURED_PACKET_SCHEMA_VERSION, STRUCTURED_POINTER_SCHEMA_VERSION};
+use crate::model::{
+    MarketFeatureDelta, MarketFeatureDeltaSummary, STRUCTURED_PACKET_SCHEMA_VERSION,
+    STRUCTURED_POINTER_SCHEMA_VERSION, StructuredIntelPacket,
+};
+use crate::nats::{S3ObjectPointer, StructuredPointer};
 use serde_json::json;
+use std::path::Path;
 
 #[test]
 fn worker_defaults_follow_candidate_contract_names() {

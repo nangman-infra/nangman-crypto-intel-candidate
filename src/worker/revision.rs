@@ -1,4 +1,5 @@
-use super::*;
+use crate::model::CANDIDATE_REVISION_INDEX_SCHEMA_VERSION;
+use crate::time::path_segment;
 
 pub(super) const REVISION_INDEX_MAX_KEYS: usize = 256;
 

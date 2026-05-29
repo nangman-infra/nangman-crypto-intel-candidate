@@ -1,4 +1,5 @@
-use super::super::*;
+use crate::model::{MarketContextStatus, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
 
 pub(super) fn market_context_allows_research(
     packet: &StructuredIntelPacket,

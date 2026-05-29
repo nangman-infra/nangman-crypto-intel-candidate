@@ -1,4 +1,4 @@
-use super::*;
+use crate::model::{SelectedMarketArtifactTrace, StructuredIntelPacket};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::scoring) struct AdmissionState {

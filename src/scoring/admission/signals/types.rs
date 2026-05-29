@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::model::SelectedMarketArtifactTrace;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::scoring::admission) struct AdmissionSignals {

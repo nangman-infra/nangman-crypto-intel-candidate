@@ -1,22 +1,9 @@
-use crate::error::{AppError, AppResult};
-use crate::hash::{sha256_hex, stable_id};
-use crate::model::{
-    CANDIDATE_POINTER_SCHEMA_VERSION, CANDIDATE_REVISION_INDEX_SCHEMA_VERSION,
-    CandidateProcessingResult, CandidateRevisionIndex, MarketFeatureDelta,
-    MarketFeatureDeltaSummary, MarketRegimeContext, StructuredIntelPacket, SymbolUniverseSnapshot,
-};
+use crate::error::AppResult;
 use crate::nats::{
-    CandidateArtifactPointer, CandidatePublisher, NatsConfig, S3ObjectPointer, StructuredPointer,
+    CandidatePublisher, NatsConfig,
 };
 use crate::policy::{ScoringPolicy, load_policy};
-use crate::scoring::{
-    MarketArtifactInputs, effective_packet_family_id, process_packet_with_artifacts,
-    screening_event_key,
-};
-use crate::storage::{ListKeysPage, ObjectStore, ObjectStoreConfig};
-use crate::time::path_segment;
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use crate::storage::{ObjectStore, ObjectStoreConfig};
 
 pub const DEFAULT_AWS_REGION: &str = "ap-northeast-2";
 pub const DEFAULT_INPUT_BUCKET: &str = "nangman-crypto-dev-intel-structuring-l1-<account-suffix>";
@@ -43,9 +30,15 @@ mod score;
 
 pub use args::WorkerArgs;
 pub use args_support::worker_help;
-use content::*;
-use market::*;
-use revision::*;
+
+#[cfg(test)]
+use content::{read_single_json_or_jsonl, sha256_prefixed, validate_pointer_content_hash};
+#[cfg(test)]
+use market::{
+    expand_market_feature_delta_summary, market_feature_deltas_satisfy_packet, repair_raw_event_id,
+};
+#[cfg(test)]
+use revision::revision_index_key;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayInputKeyPage {

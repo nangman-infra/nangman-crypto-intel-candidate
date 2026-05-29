@@ -1,6 +1,8 @@
 use super::helpers::push_component;
 use super::numeric::derivatives_numeric_baseline_resolved;
-use super::*;
+use crate::model::{EvidenceQualityReason, ScoreComponent, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::AdmissionState;
 
 pub(super) fn push_evidence_quality_score_components(
     components: &mut Vec<ScoreComponent>,

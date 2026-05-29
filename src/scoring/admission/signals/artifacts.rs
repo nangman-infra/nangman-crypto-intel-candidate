@@ -1,4 +1,10 @@
-use super::super::*;
+use crate::model::{SelectedMarketArtifactTrace, StructuredIntelPacket};
+use crate::scoring::MarketArtifactInputs;
+use crate::scoring::helpers::{
+    market_feature_delta_artifact_key, selected_derivatives_market_feature_delta,
+    selected_market_feature_delta, selected_market_feature_delta_metric_filter,
+    selected_market_regime_context,
+};
 
 pub(super) fn selected_market_feature_delta_when_referenced(
     packet: &StructuredIntelPacket,

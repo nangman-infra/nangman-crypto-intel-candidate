@@ -1,4 +1,5 @@
-use super::*;
+use super::ObjectStoreConfig;
+use crate::error::{AppError, AppResult};
 
 pub(super) fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
     if config.bucket.trim().is_empty() {

@@ -1,5 +1,5 @@
-use super::super::*;
 use super::context::ResearchBundleInputs;
+use crate::model::{StructuredIntelPacket, SymbolUniverseSnapshot};
 
 pub(in crate::scoring) fn research_bundle_inputs<'a>(
     packet: &StructuredIntelPacket,

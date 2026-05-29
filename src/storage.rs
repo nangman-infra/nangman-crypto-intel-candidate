@@ -3,9 +3,6 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::Builder as S3ConfigBuilder;
-use aws_sdk_s3::operation::list_objects_v2::builders::ListObjectsV2FluentBuilder;
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::types::Object;
 use aws_types::region::Region;
 
 mod config;

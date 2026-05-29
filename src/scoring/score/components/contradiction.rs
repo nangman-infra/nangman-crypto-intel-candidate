@@ -1,6 +1,8 @@
 use super::helpers::push_component;
 use super::numeric::derivatives_numeric_baseline_resolved;
-use super::*;
+use crate::model::{ContradictionFlag, ScoreComponent, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::{AdmissionState, is_medium_contradiction};
 
 pub(super) fn push_contradiction_score_components(
     components: &mut Vec<ScoreComponent>,

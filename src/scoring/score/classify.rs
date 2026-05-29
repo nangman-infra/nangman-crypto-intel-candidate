@@ -1,4 +1,6 @@
-use super::*;
+use crate::model::{CandidateClass, EventType, ScoreBreakdown, StructuredIntelPacket};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::{AdmissionState, dedupe_strings};
 
 pub(in crate::scoring) fn classify_candidate(
     packet: &StructuredIntelPacket,

@@ -1,4 +1,6 @@
-use super::*;
+use crate::hash::stable_id;
+use crate::model::{MarketFeatureDelta, MarketFeatureDeltaSummary, StructuredIntelPacket};
+use std::collections::BTreeSet;
 
 pub(super) fn expand_market_feature_delta_summary(
     summary: MarketFeatureDeltaSummary,

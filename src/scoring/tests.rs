@@ -1,9 +1,12 @@
 use super::*;
 use crate::model::{
-    MarketContextRef, MarketFeatureDelta, MarketRegimeContext, MetricEvidence,
-    SourceIndependenceSummary, SymbolResolutionTrace, SymbolUniverseMember, TextEvidence,
+    CandidateClass, CandidateProcessingResult, ConfidenceBand, ContradictionFlag, EventType,
+    EvidenceQualityReason, MarketContextRef, MarketContextStatus, MarketFeatureDelta,
+    MarketRegimeContext, MetricEvidence, STRUCTURED_PACKET_SCHEMA_VERSION,
+    SourceIndependenceSummary, StructuredIntelPacket, SymbolResolutionTrace, SymbolUniverseMember,
+    SymbolUniverseSnapshot, TextEvidence,
 };
-use crate::policy::load_policy;
+use crate::policy::{ScoringPolicy, load_policy};
 use std::path::Path;
 
 fn policy() -> ScoringPolicy {

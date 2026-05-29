@@ -1,4 +1,8 @@
-use super::super::*;
+use crate::model::{
+    CandidateClass, ScoreBreakdown, SelectedMarketArtifactTrace, SourceIndependenceSummary,
+    StructuredIntelPacket, SymbolUniverseSnapshot,
+};
+use crate::policy::ScoringPolicy;
 
 pub(in crate::scoring) struct BundleBuildContext<'a> {
     pub(in crate::scoring) candidate_id: &'a str,

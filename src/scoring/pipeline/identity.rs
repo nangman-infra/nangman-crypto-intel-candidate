@@ -1,4 +1,8 @@
-use super::super::*;
+use crate::hash::stable_id;
+use crate::model::{CandidateClass, StructuredIntelPacket, SymbolUniverseSnapshot};
+use crate::policy::ScoringPolicy;
+use crate::scoring::admission::AdmissionState;
+use crate::scoring::helpers::candidate_id;
 
 pub(super) fn candidate_id_for_admission(
     packet: &StructuredIntelPacket,

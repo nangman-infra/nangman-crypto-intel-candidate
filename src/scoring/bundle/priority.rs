@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::model::{ConfidenceBand, EventType};
 
 pub(super) fn research_priority(
     event_type: &EventType,

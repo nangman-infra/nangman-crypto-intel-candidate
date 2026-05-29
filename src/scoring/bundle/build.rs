@@ -1,9 +1,18 @@
 use std::collections::BTreeMap;
 
-use super::super::*;
 use super::context::BundleBuildContext;
 use super::priority::{research_priority, research_priority_partition};
 use super::support::{evidence_refs, validation_requirements};
+use crate::hash::{sha256_hex, stable_id};
+use crate::model::{
+    CANDIDATE_BUNDLE_SCHEMA_VERSION, DataQualitySummaryRef, IntelCandidateEvidenceBundle,
+    PRODUCER_APP,
+};
+use crate::scoring::admission::effective_market_context_status;
+use crate::scoring::helpers::{
+    approved_universe_symbols, candidate_bundle_key, effective_packet_family_id,
+    parent_artifact_ids,
+};
 
 pub(in crate::scoring) fn build_evidence_bundle(
     context: BundleBuildContext<'_>,

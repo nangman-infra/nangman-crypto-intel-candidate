@@ -1,4 +1,9 @@
-use super::*;
+use super::CandidateWorker;
+use super::content::sha256_prefixed;
+use crate::error::AppResult;
+use crate::model::{CANDIDATE_POINTER_SCHEMA_VERSION, CandidateProcessingResult};
+use crate::nats::{CandidateArtifactPointer, S3ObjectPointer};
+use crate::scoring::screening_event_key;
 
 impl CandidateWorker {
     pub(super) async fn write_and_publish_result(

@@ -1,4 +1,8 @@
-use super::super::*;
+use crate::model::{
+    CANDIDATE_BUNDLE_SCHEMA_VERSION, HYPOTHESIS_STATE_SCHEMA_VERSION,
+    SCREENING_EVENT_SCHEMA_VERSION,
+};
+use crate::time::{path_segment, time_part};
 
 pub fn candidate_bundle_key(
     created_at_ms: i64,

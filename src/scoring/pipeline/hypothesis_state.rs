@@ -1,4 +1,9 @@
-use super::super::*;
+use crate::model::{
+    CandidateClass, IntelCandidateHypothesisState, ScoreBreakdown, SelectedMarketArtifactTrace,
+    StructuredIntelPacket,
+};
+use crate::policy::ScoringPolicy;
+use crate::scoring::hypothesis::{HypothesisStateBuildContext, build_hypothesis_state};
 
 pub(super) struct HypothesisStateInput<'a> {
     pub(super) packet: &'a StructuredIntelPacket,

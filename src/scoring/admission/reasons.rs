@@ -1,5 +1,7 @@
+use super::dedupe_strings;
 use super::signals::AdmissionSignals;
-use super::*;
+use crate::model::StructuredIntelPacket;
+use crate::policy::ScoringPolicy;
 
 pub(super) fn collect_quarantine_reasons(
     policy: &ScoringPolicy,

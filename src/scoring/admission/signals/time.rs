@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::model::StructuredIntelPacket;
 
 pub(super) fn has_required_replay_times(packet: &StructuredIntelPacket) -> bool {
     packet.fetched_at_ms.is_some()
