@@ -9,9 +9,11 @@ mod config;
 mod list;
 #[cfg(test)]
 mod tests;
+mod validation;
 mod write;
 
 use config::validate_config;
+pub use validation::{validate_bucket_name, validate_object_key, validate_object_prefix};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectStoreConfig {
@@ -83,6 +85,7 @@ impl ObjectStore {
     }
 
     pub async fn get_bytes(&self, key: &str) -> AppResult<Vec<u8>> {
+        validate_object_key(key, "S3 object key")?;
         let output = self
             .client
             .get_object()

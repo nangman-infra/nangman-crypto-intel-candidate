@@ -22,6 +22,14 @@ impl WorkerArgs {
     }
 }
 
+#[cfg(test)]
+pub(super) fn parse_with_nats_url_env(
+    values: impl Iterator<Item = String>,
+    nats_url_env: Option<&str>,
+) -> AppResult<Option<WorkerArgs>> {
+    parse::parse_worker_args_with_env(values, || nats_url_env.map(str::to_owned))
+}
+
 impl Default for WorkerArgs {
     fn default() -> Self {
         defaults::default_worker_args()

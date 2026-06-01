@@ -1,4 +1,4 @@
-use super::{ListKeysPage, ObjectStore};
+use super::{ListKeysPage, ObjectStore, validate_object_key, validate_object_prefix};
 use crate::error::{AppError, AppResult};
 use aws_sdk_s3::operation::list_objects_v2::builders::ListObjectsV2FluentBuilder;
 use aws_sdk_s3::types::Object;
@@ -16,6 +16,10 @@ impl ObjectStore {
         max_keys: usize,
         start_after: Option<&str>,
     ) -> AppResult<ListKeysPage> {
+        validate_object_prefix(prefix, "S3 object prefix")?;
+        if let Some(start_after) = start_after.filter(|value| !value.trim().is_empty()) {
+            validate_object_key(start_after, "S3 list start_after key")?;
+        }
         if max_keys == 0 {
             return Ok(ListKeysPage {
                 keys: Vec::new(),

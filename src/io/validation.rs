@@ -1,17 +1,11 @@
 use crate::error::{AppError, AppResult};
+use crate::path_validation::validate_unambiguous_absolute_path;
 use std::path::{Component, Path};
 
 const MAX_OUTPUT_KEY_BYTES: usize = 1024;
 
 pub(super) fn validate_output_dir(output_dir: &Path) -> AppResult<()> {
-    if output_dir.is_absolute() {
-        Ok(())
-    } else {
-        Err(AppError::validation(format!(
-            "output dir must be an absolute path: {}",
-            output_dir.display()
-        )))
-    }
+    validate_unambiguous_absolute_path(output_dir, "output dir").map_err(AppError::validation)
 }
 
 pub(super) fn validate_output_key(key: &str) -> AppResult<()> {

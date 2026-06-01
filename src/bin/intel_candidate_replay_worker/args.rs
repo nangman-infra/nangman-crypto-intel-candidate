@@ -54,6 +54,42 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unsafe_replay_prefixes() {
+        for (flag, value) in [
+            (
+                "--replay-input-prefix",
+                "s3://bucket/structured-intel-packet/",
+            ),
+            ("--replay-report-prefix", "/candidate-replay-report"),
+            ("--replay-result-prefix", "candidate replay result"),
+        ] {
+            let err = parse_args(
+                [
+                    "--nats-url",
+                    "nats://127.0.0.1:4222",
+                    "--input-s3-bucket",
+                    "test-structured-l1",
+                    "--output-s3-bucket",
+                    "test-candidate",
+                    "--market-l1-s3-bucket",
+                    "test-market-l1",
+                    "--replay-input-prefix",
+                    "structured-intel-packet/schema=structured_intel_packet_v1/",
+                    flag,
+                    value,
+                ]
+                .into_iter()
+                .map(str::to_owned),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains(flag),
+                "expected error for {flag}, got {err}"
+            );
+        }
+    }
+
+    #[test]
     fn replay_help_uses_compiled_policy_path() {
         assert!(replay_help().contains(intel_candidate_app::policy::DEFAULT_POLICY_PATH));
     }

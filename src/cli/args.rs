@@ -1,5 +1,6 @@
 use super::help::help_text;
 use crate::error::{AppError, AppResult};
+use crate::path_validation::validate_unambiguous_absolute_path;
 use crate::policy::DEFAULT_POLICY_PATH;
 use std::path::PathBuf;
 
@@ -93,11 +94,8 @@ where
 fn absolute_path_arg(value: Option<String>, message: &str) -> AppResult<PathBuf> {
     let value = value.ok_or_else(|| AppError::config(message))?;
     let path = PathBuf::from(value);
-    if !path.is_absolute() {
-        return Err(AppError::config(format!(
-            "{message}; got {}",
-            path.display()
-        )));
-    }
+    let label = message.split(" requires").next().unwrap_or("path");
+    validate_unambiguous_absolute_path(&path, label)
+        .map_err(|error| AppError::config(format!("{message}; {error}")))?;
     Ok(path)
 }

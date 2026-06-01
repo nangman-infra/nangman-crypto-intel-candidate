@@ -70,3 +70,27 @@ fn parse_disable_repair() {
         DEFAULT_REPAIR_RECENT_PARTITION_DAYS
     );
 }
+
+#[test]
+fn rejects_unsafe_repair_prefix() {
+    let err = AgentArgs::parse(
+        [
+            "--nats-url",
+            "nats://127.0.0.1:4222",
+            "--input-s3-bucket",
+            "test-structured-l1",
+            "--output-s3-bucket",
+            "test-candidate",
+            "--market-l1-s3-bucket",
+            "test-market-l1",
+            "--repair-input-prefix",
+            "s3://bucket/structured-intel-packet/",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    )
+    .unwrap_err();
+
+    assert!(err.to_string().contains("--repair-input-prefix"));
+    assert!(err.to_string().contains("object key"));
+}

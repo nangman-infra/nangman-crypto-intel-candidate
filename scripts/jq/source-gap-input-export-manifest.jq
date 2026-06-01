@@ -1,0 +1,30 @@
+{
+  schema_version:"intel_candidate_source_gap_input_export_v1",
+  generated_at:$generated_at,
+  input:{
+    source_dt:$source_dt,
+    task_definition_family_revision:$task_family_revision
+  },
+  safety:{
+    s3_read:true,
+    s3_write:false,
+    ecs_task_started:false,
+    dispatcher_mode_changed:false,
+    local_export_only:true,
+    shadow_paper_live_enabled:false,
+    bucket_names_redacted:true
+  },
+  local_paths:{
+    output_dir:$output_dir,
+    structured_packets:$structured_dir,
+    screening_events:$screening_dir,
+    hypothesis_states:$hypothesis_dir,
+    evidence_bundles:$evidence_dir
+  },
+  counts:{
+    structured_files:$structured_files,
+    screening_files:$screening_files,
+    hypothesis_files:$hypothesis_files,
+    evidence_files:$evidence_files
+  }
+}

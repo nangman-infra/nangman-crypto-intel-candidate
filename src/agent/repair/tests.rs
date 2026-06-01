@@ -1,7 +1,7 @@
 use super::super::args::AgentArgs;
 use super::cursor::RepairScanCursors;
-use super::cycle::append_unique_keys;
 use super::prefixes::{MILLIS_PER_DAY, repair_prefixes_for_cycle};
+use super::scan::append_unique_keys;
 use std::collections::HashSet;
 
 fn agent_args(repair_input_prefix: &str) -> AgentArgs {

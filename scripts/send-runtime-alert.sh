@@ -17,209 +17,25 @@ AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 OUTPUT_BUCKET="${INTEL_CANDIDATE_OUTPUT_S3_BUCKET:-}"
 ERROR_LOOKBACK_MINUTES="${INTEL_CANDIDATE_ALERT_ERROR_LOG_LOOKBACK_MINUTES:-30}"
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-fi
-
-log() {
-  printf '%s\n' "$*"
-}
-
-die() {
-  printf 'intel candidate runtime alert failed: %s\n' "$*" >&2
-  exit 1
-}
-
-require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    die "missing required command: $1"
-  fi
-}
-
-is_true() {
-  case "$1" in
-    1 | true | TRUE | yes | YES) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-redact() {
-  sed -E 's/[0-9]{12}/<aws-account-id>/g; s/[[:space:]]+$//'
-}
-
-send_pipeline_alert() {
-  local priority="$1"
-  local title="$2"
-  local text="$3"
-  if [[ -z "$PIPELINE_ALERT_S3_BUCKET" ]]; then
-    die "NANGMAN_PIPELINE_ALERT_S3_BUCKET or INTEL_CANDIDATE_PIPELINE_ALERT_S3_BUCKET is required"
-  fi
-  local now_ms dt hour event_id key payload_file
-  now_ms="$(date -u +%s000)"
-  dt="$(date -u +%Y-%m-%d)"
-  hour="$(date -u +%H)"
-  event_id="pipeline_alert_intel_candidate_${now_ms}_$$"
-  key="${PIPELINE_ALERT_S3_PREFIX%/}/dt=${dt}/hour=${hour}/app=${APP_NAME}/priority=${priority}/${event_id}.json"
-  payload_file="$(mktemp)"
-  local payload
-  payload="$(jq -nc \
-    --arg event_id "$event_id" \
-    --arg dedupe_key "${APP_NAME}:${priority}:${title}" \
-    --arg app "$APP_NAME" \
-    --arg env "$ALERT_ENV" \
-    --arg priority "$priority" \
-    --arg title "$title" \
-    --arg rendered_text "$text" \
-    --argjson created_at_ms "$now_ms" \
-    '{schema_version:"pipeline_alert_event_v1",event_id:$event_id,dedupe_key:$dedupe_key,app:$app,environment:$env,priority:$priority,title:$title,conclusion:"Runtime wrapper emitted a pipeline alert.",rendered_text:$rendered_text,current_state:["pre-rendered runtime alert"],reasons:[],next_actions:[],safety:["paper/live/order execution unchanged"],created_at_ms:$created_at_ms}')"
-  printf '%s\n' "$payload" > "$payload_file"
-  aws s3api put-object \
-    --region "$AWS_REGION" \
-    --bucket "$PIPELINE_ALERT_S3_BUCKET" \
-    --key "$key" \
-    --body "$payload_file" \
-    --content-type application/json >/dev/null
-  rm -f "$payload_file"
-}
-
-append_check() {
-  local file="$1"
-  local title="$2"
-  shift 2
-  {
-    printf '\n## %s\n' "$title"
-    "$@" 2>&1 | redact
-  } >> "$file"
-}
-
-derive_log_group() {
-  local task_definition="$1"
-  aws ecs describe-task-definition \
-    --region "$AWS_REGION" \
-    --task-definition "$task_definition" \
-    --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
-    --output text
-}
-
-check_service() {
-  local output_file="$1"
-  local failures=0
-  local service_json
-  service_json="$(aws ecs describe-services \
-    --region "$AWS_REGION" \
-    --cluster "$CLUSTER" \
-    --services "$SERVICE" \
-    --output json)"
-
-  jq '{services:.services[] | {serviceName,desiredCount,runningCount,pendingCount,status,taskDefinition,rolloutState:(.deployments[0].rolloutState // "unknown")}}' \
-    <<< "$service_json" | redact >> "$output_file"
-
-  local desired running task_definition
-  desired="$(jq -r '.services[0].desiredCount // 0' <<< "$service_json")"
-  running="$(jq -r '.services[0].runningCount // 0' <<< "$service_json")"
-  task_definition="$(jq -r '.services[0].taskDefinition // empty' <<< "$service_json")"
-  if [[ "$desired" == "0" || "$running" != "$desired" ]]; then
-    printf 'service_not_fully_running desired=%s running=%s\n' "$desired" "$running" >> "$output_file"
-    failures=$((failures + 1))
-  fi
-
-  if [[ -n "$task_definition" && "$task_definition" != "null" ]]; then
-    local log_group
-    log_group="$(derive_log_group "$task_definition")"
-    printf 'derived_log_group=%s\n' "$log_group" | redact >> "$output_file"
-    if [[ -n "$log_group" && "$log_group" != "None" ]]; then
-      local start_time
-      start_time="$((($(date -u +%s) - (ERROR_LOOKBACK_MINUTES * 60)) * 1000))"
-      local error_events
-      error_events="$(aws logs filter-log-events \
-        --region "$AWS_REGION" \
-        --log-group-name "$log_group" \
-        --start-time "$start_time" \
-        --filter-pattern 'panic ?ERROR ?error ?AccessDenied ?OutOfMemory ?SIGKILL ?Killed' \
-        --limit 10 \
-        --query 'events[].{timestamp:timestamp,message:message}' \
-        --output json)"
-      local error_count
-      error_count="$(jq 'length' <<< "$error_events")"
-      printf 'recent_error_log_count=%s\n' "$error_count" >> "$output_file"
-      if [[ "$error_count" != "0" ]]; then
-        jq '.' <<< "$error_events" | redact >> "$output_file"
-        failures=$((failures + 1))
-      fi
-    fi
-  fi
-
-  if [[ -n "$OUTPUT_BUCKET" ]]; then
-    append_check "$output_file" "latest candidate evidence bundle" \
-      aws s3api list-objects-v2 \
-        --region "$AWS_REGION" \
-        --bucket "$OUTPUT_BUCKET" \
-        --prefix candidate-evidence-bundle/ \
-        --max-items 1000 \
-        --query 'sort_by(Contents || `[]`, &LastModified)[-1].{key:Key,lastModified:LastModified,size:Size}' \
-        --output json
-  else
-    printf 'candidate_output_bucket_check=skipped reason=INTEL_CANDIDATE_OUTPUT_S3_BUCKET_not_set\n' >> "$output_file"
-  fi
-
-  return "$failures"
-}
-
-message() {
-  local priority="$1"
-  local title="$2"
-  local output_file="$3"
-  local next_action="$4"
-  local now_kst
-  now_kst="$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')"
-  cat <<EOF
-[${priority}][intel-candidate-app] ${title}
-
-결론:
-Intel candidate runtime 상태를 확인했습니다.
-
-현재 상태:
-- env: ${ALERT_ENV}
-- cluster: ${CLUSTER}
-- service: ${SERVICE}
-- app_dir: ${APP_DIR}
-
-주요 원인:
-$(tail -n 18 "$output_file" | sed 's/^/- /')
-
-다음 행동:
-${next_action}
-
-안전 상태:
-- 이 알림은 candidate 생성 상태 알림입니다.
-- paper/live/order execution을 변경하지 않습니다.
-
-발송 시각: ${now_kst}
-EOF
-}
-
-self_test() {
-  require_command jq
-  local tmp
-  tmp="$(mktemp)"
-  cat > "$tmp" <<'EOF'
-service_not_fully_running desired=1 running=0
-recent_error_log_count=1
-candidate_output_bucket_check=skipped reason=INTEL_CANDIDATE_OUTPUT_S3_BUCKET_not_set
-EOF
-  local rendered
-  rendered="$(message P1 "runtime check failed" "$tmp" "- ECS service와 최근 error log를 먼저 확인")"
-  [[ "$rendered" == *"[P1][intel-candidate-app]"* ]] || die "self-test expected P1 title"
-  [[ "$rendered" == *"candidate 생성 상태"* ]] || die "self-test expected candidate context"
-  [[ "$rendered" == *"안전 상태:"* ]] || die "self-test expected safety state"
-  rm -f "$tmp"
-  log "send-runtime-alert self-test passed"
-}
+# shellcheck source=scripts/lib/runtime-alert-core.sh
+source "$SCRIPT_DIR/lib/runtime-alert-core.sh"
+# shellcheck source=scripts/lib/runtime-alert-env.sh
+source "$SCRIPT_DIR/lib/runtime-alert-env.sh"
+# shellcheck source=scripts/lib/runtime-alert-pipeline.sh
+source "$SCRIPT_DIR/lib/runtime-alert-pipeline.sh"
+# shellcheck source=scripts/lib/runtime-alert-service.sh
+source "$SCRIPT_DIR/lib/runtime-alert-service.sh"
+# shellcheck source=scripts/lib/runtime-alert-message.sh
+source "$SCRIPT_DIR/lib/runtime-alert-message.sh"
+# shellcheck source=scripts/lib/runtime-alert-self-test.sh
+source "$SCRIPT_DIR/lib/runtime-alert-self-test.sh"
 
 main() {
+  load_env_file
+  apply_runtime_alert_env_defaults
+  require_boolean "INTEL_CANDIDATE_ALERT_SELF_TEST" "${INTEL_CANDIDATE_ALERT_SELF_TEST:-false}"
+  require_boolean "INTEL_CANDIDATE_ALERT_INCLUDE_SUCCESS" "$INCLUDE_SUCCESS"
+
   if is_true "${INTEL_CANDIDATE_ALERT_SELF_TEST:-false}"; then
     self_test
     return
@@ -229,6 +45,7 @@ main() {
   require_command jq
   require_command sed
   require_command tail
+  validate_runtime_alert_config
 
   local output_file
   output_file="$(mktemp)"
@@ -238,15 +55,22 @@ main() {
   set -e
 
   if [[ "$status" -ne 0 ]]; then
-    send_pipeline_alert P1 "runtime check failed" "$(message P1 "runtime check failed" "$output_file" $'- ECS desired/running count와 최근 error log를 확인\n- structured pointer 입력과 candidate evidence bundle 최신성을 확인')"
-    rm -f "$output_file"
+    local alert_status=0
+    send_pipeline_alert P1 "runtime check failed" "$(message P1 "runtime check failed" "$output_file" $'- ECS desired/running count와 최근 error log를 확인\n- structured pointer 입력과 candidate evidence bundle 최신성을 확인')" || alert_status=$?
+    remove_temp_file "$output_file"
+    if [[ "$alert_status" -ne 0 ]]; then
+      return "$alert_status"
+    fi
     return "$status"
   fi
 
   if is_true "$INCLUDE_SUCCESS"; then
-    send_pipeline_alert P3 "runtime check summary" "$(message P3 "runtime check summary" "$output_file" "- 일반 성공 알림은 기본적으로 끄고, 필요할 때만 일시적으로 켭니다.")"
+    local alert_status=0
+    send_pipeline_alert P3 "runtime check summary" "$(message P3 "runtime check summary" "$output_file" "- 일반 성공 알림은 기본적으로 끄고, 필요할 때만 일시적으로 켭니다.")" || alert_status=$?
+    remove_temp_file "$output_file"
+    return "$alert_status"
   fi
-  rm -f "$output_file"
+  remove_temp_file "$output_file"
 }
 
 main "$@"

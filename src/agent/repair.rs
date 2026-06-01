@@ -1,7 +1,9 @@
 mod cursor;
 mod cycle;
 mod prefixes;
+mod process;
 mod report;
+mod scan;
 
 #[cfg(test)]
 mod tests;

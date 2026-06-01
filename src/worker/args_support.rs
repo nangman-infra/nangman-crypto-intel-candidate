@@ -1,5 +1,7 @@
 use crate::error::{AppError, AppResult};
+use crate::path_validation::validate_unambiguous_absolute_path;
 use crate::policy::DEFAULT_POLICY_PATH;
+use crate::storage::validate_bucket_name;
 use std::path::PathBuf;
 
 pub fn worker_help() -> String {
@@ -34,26 +36,42 @@ pub(super) fn next_string(
 }
 
 pub(super) fn validate_bucket_arg(value: &str, name: &str) -> AppResult<()> {
+    validate_bucket_name(value, name)
+}
+
+pub(super) fn validate_nats_url_arg(value: String, name: &str) -> AppResult<String> {
     if value.trim().is_empty() {
-        return Err(AppError::config(format!("{name} requires a bucket")));
+        return Err(AppError::config(format!("{name} is required")));
     }
-    if value.contains('<') || value.contains('>') {
+    if value
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
         return Err(AppError::config(format!(
-            "{name} must be a real bucket name, not a public-doc placeholder"
+            "{name} must not contain whitespace or control characters"
         )));
     }
-    Ok(())
+    let has_supported_scheme = ["nats://", "tls://", "ws://", "wss://"]
+        .iter()
+        .any(|scheme| {
+            value
+                .strip_prefix(scheme)
+                .is_some_and(|server| !server.is_empty())
+        });
+    if !has_supported_scheme {
+        return Err(AppError::config(format!(
+            "{name} must start with nats://, tls://, ws://, or wss:// and include a server"
+        )));
+    }
+    Ok(value)
 }
 
 pub(super) fn absolute_path_arg(value: Option<String>, message: &str) -> AppResult<PathBuf> {
     let value = value.ok_or_else(|| AppError::config(message))?;
     let path = PathBuf::from(value);
-    if !path.is_absolute() {
-        return Err(AppError::config(format!(
-            "{message}; got {}",
-            path.display()
-        )));
-    }
+    let label = message.split(" requires").next().unwrap_or("path");
+    validate_unambiguous_absolute_path(&path, label)
+        .map_err(|error| AppError::config(format!("{message}; {error}")))?;
     Ok(path)
 }
 

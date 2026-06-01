@@ -1,15 +1,9 @@
 use super::ObjectStoreConfig;
+use super::validate_bucket_name;
 use crate::error::{AppError, AppResult};
 
 pub(super) fn validate_config(config: &ObjectStoreConfig) -> AppResult<()> {
-    if config.bucket.trim().is_empty() {
-        return Err(AppError::config("object store bucket is required"));
-    }
-    if config.bucket.contains('<') || config.bucket.contains('>') {
-        return Err(AppError::config(
-            "object store bucket must be a real bucket name, not a public-doc placeholder",
-        ));
-    }
+    validate_bucket_name(&config.bucket, "object store bucket")?;
     if config.region.trim().is_empty() {
         return Err(AppError::config("object store region is required"));
     }

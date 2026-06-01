@@ -1,4 +1,5 @@
 use intel_candidate_app::error::{AppError, AppResult};
+use intel_candidate_app::storage::validate_object_prefix;
 use intel_candidate_app::worker::WorkerArgs;
 
 use super::types::{DEFAULT_MAX_KEYS, ReplayArgs};
@@ -64,6 +65,14 @@ pub(crate) fn parse_args(values: impl Iterator<Item = String>) -> AppResult<Opti
     if input_prefixes.is_empty() {
         return Err(AppError::config("--replay-input-prefix is required"));
     }
+    for prefix in &input_prefixes {
+        validate_object_prefix(prefix, "--replay-input-prefix")
+            .map_err(|error| AppError::config(error.to_string()))?;
+    }
+    validate_object_prefix(&report_prefix, "--replay-report-prefix")
+        .map_err(|error| AppError::config(error.to_string()))?;
+    validate_object_prefix(&result_prefix, "--replay-result-prefix")
+        .map_err(|error| AppError::config(error.to_string()))?;
     let Some(worker) = WorkerArgs::parse(worker_args.into_iter())? else {
         return Ok(None);
     };

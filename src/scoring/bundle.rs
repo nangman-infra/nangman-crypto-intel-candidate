@@ -1,7 +1,9 @@
 mod build;
 mod context;
+mod identity;
 mod inputs;
 mod priority;
+mod summaries;
 mod support;
 
 pub(super) use build::build_evidence_bundle;

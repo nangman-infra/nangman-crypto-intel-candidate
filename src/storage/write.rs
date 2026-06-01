@@ -1,4 +1,4 @@
-use super::ObjectStore;
+use super::{ObjectStore, validate_object_key};
 use crate::error::{AppError, AppResult};
 use aws_sdk_s3::primitives::ByteStream;
 
@@ -75,6 +75,7 @@ impl ObjectStore {
         content_type: &'static str,
         if_absent: bool,
     ) -> AppResult<()> {
+        validate_object_key(key, "S3 object key")?;
         let mut request = self
             .client
             .put_object()

@@ -6,6 +6,7 @@ pub mod io;
 pub mod live;
 pub mod model;
 pub mod nats;
+mod path_validation;
 pub mod policy;
 pub mod scoring;
 pub mod storage;
