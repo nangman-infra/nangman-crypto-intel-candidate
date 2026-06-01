@@ -1,7 +1,7 @@
 use super::super::args::AgentArgs;
 use super::cursor::RepairScanCursors;
 use super::prefixes::{MILLIS_PER_DAY, repair_prefixes_for_cycle};
-use super::scan::append_unique_keys;
+use super::scan::take_unique_keys;
 use std::collections::HashSet;
 
 fn agent_args(repair_input_prefix: &str) -> AgentArgs {
@@ -51,12 +51,10 @@ fn repair_prefixes_leave_generic_prefixes_unexpanded() {
 }
 
 #[test]
-fn append_unique_keys_preserves_first_seen_order() {
-    let mut keys = Vec::new();
+fn take_unique_keys_preserves_first_seen_order() {
     let mut seen = HashSet::new();
 
-    append_unique_keys(
-        &mut keys,
+    let mut keys = take_unique_keys(
         &mut seen,
         vec![
             "recent-a".to_owned(),
@@ -64,11 +62,10 @@ fn append_unique_keys_preserves_first_seen_order() {
             "recent-a".to_owned(),
         ],
     );
-    append_unique_keys(
-        &mut keys,
+    keys.extend(take_unique_keys(
         &mut seen,
         vec!["old-a".to_owned(), "recent-b".to_owned()],
-    );
+    ));
 
     assert_eq!(keys, vec!["recent-a", "recent-b", "old-a"]);
 }

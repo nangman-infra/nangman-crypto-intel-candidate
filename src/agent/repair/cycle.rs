@@ -1,9 +1,8 @@
 use super::super::args::AgentArgs;
 use super::cursor::RepairScanCursors;
 use super::prefixes::repair_prefixes_for_cycle;
-use super::process::process_repair_keys;
 use super::report::RepairCycleReport;
-use super::scan::collect_repair_keys;
+use super::scan::run_repair_scan;
 use crate::error::AppResult;
 use crate::telemetry;
 use crate::time::now_ms;
@@ -30,15 +29,14 @@ pub(in crate::agent) async fn run_repair_cycle(
         }),
     )?;
 
-    let all_keys = collect_repair_keys(
+    run_repair_scan(
         agent_run_id,
         worker,
         args,
         repair_scan_cursors,
         &repair_input_prefixes,
     )
-    .await?;
-    process_repair_keys(agent_run_id, worker, all_keys).await
+    .await
 }
 
 pub(in crate::agent) fn repair_due(args: &AgentArgs, next_repair_after_ms: i64) -> bool {

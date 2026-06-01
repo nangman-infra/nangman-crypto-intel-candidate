@@ -9,15 +9,11 @@ use serde_json::json;
 pub(in crate::agent::repair) async fn process_repair_keys(
     agent_run_id: &str,
     worker: &CandidateWorker,
-    all_keys: Vec<String>,
+    keys: impl IntoIterator<Item = String>,
 ) -> AppResult<RepairCycleReport> {
-    let mut report = RepairCycleReport {
-        keys_seen: all_keys.len(),
-        keys_processed: 0,
-        keys_skipped_stale_revision: 0,
-        keys_failed: 0,
-    };
-    for key in all_keys {
+    let mut report = RepairCycleReport::empty();
+    for key in keys {
+        report.keys_seen += 1;
         match worker.process_s3_key(&key, now_ms()).await {
             Ok(Some(result)) => {
                 report.keys_processed += 1;

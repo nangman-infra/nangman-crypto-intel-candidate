@@ -1,37 +1,46 @@
 use super::super::args::AgentArgs;
 use super::cursor::RepairScanCursors;
+use super::process::process_repair_keys;
+use super::report::RepairCycleReport;
 use crate::error::AppResult;
 use crate::telemetry;
 use crate::worker::CandidateWorker;
 use serde_json::json;
 use std::collections::HashSet;
 
-pub(in crate::agent::repair) async fn collect_repair_keys(
+pub(in crate::agent::repair) async fn run_repair_scan(
     agent_run_id: &str,
     worker: &CandidateWorker,
     args: &AgentArgs,
     repair_scan_cursors: &mut RepairScanCursors,
     repair_input_prefixes: &[String],
-) -> AppResult<Vec<String>> {
-    let mut all_keys = Vec::new();
+) -> AppResult<RepairCycleReport> {
+    let mut report = RepairCycleReport::empty();
     let mut seen_keys = HashSet::new();
     for prefix in repair_input_prefixes {
-        let keys =
-            collect_repair_keys_for_prefix(agent_run_id, worker, args, repair_scan_cursors, prefix)
-                .await?;
-        append_unique_keys(&mut all_keys, &mut seen_keys, keys);
+        let prefix_report = run_repair_scan_for_prefix(
+            agent_run_id,
+            worker,
+            args,
+            repair_scan_cursors,
+            prefix,
+            &mut seen_keys,
+        )
+        .await?;
+        report.merge(prefix_report);
     }
-    Ok(all_keys)
+    Ok(report)
 }
 
-async fn collect_repair_keys_for_prefix(
+async fn run_repair_scan_for_prefix(
     agent_run_id: &str,
     worker: &CandidateWorker,
     args: &AgentArgs,
     repair_scan_cursors: &mut RepairScanCursors,
     prefix: &str,
-) -> AppResult<Vec<String>> {
-    let mut keys = Vec::new();
+    seen_keys: &mut HashSet<String>,
+) -> AppResult<RepairCycleReport> {
+    let mut report = RepairCycleReport::empty();
     for page_number in 1..=args.repair_max_pages_per_prefix {
         let scan_start_after = repair_scan_cursors.start_after(prefix).map(str::to_owned);
         let page = worker
@@ -42,6 +51,8 @@ async fn collect_repair_keys_for_prefix(
             )
             .await?;
         let page_key_count = page.keys.len();
+        let unique_page_keys = take_unique_keys(seen_keys, page.keys);
+        let unique_page_key_count = unique_page_keys.len();
         let cursor_continues =
             repair_scan_cursors.update_after_page(prefix, page.next_start_after.clone());
         telemetry::info(
@@ -55,24 +66,27 @@ async fn collect_repair_keys_for_prefix(
                 "next_start_after": page.next_start_after,
                 "cursor_continues": cursor_continues,
                 "keys": page_key_count,
+                "unique_keys": unique_page_key_count,
             }),
         )?;
-        keys.extend(page.keys);
+        let page_report = process_repair_keys(agent_run_id, worker, unique_page_keys).await?;
+        report.merge(page_report);
         if !cursor_continues || page_key_count == 0 {
             break;
         }
     }
-    Ok(keys)
+    Ok(report)
 }
 
-pub(in crate::agent::repair) fn append_unique_keys(
-    destination: &mut Vec<String>,
+pub(in crate::agent::repair) fn take_unique_keys(
     seen: &mut HashSet<String>,
     keys: Vec<String>,
-) {
+) -> Vec<String> {
+    let mut unique_keys = Vec::new();
     for key in keys {
         if seen.insert(key.clone()) {
-            destination.push(key);
+            unique_keys.push(key);
         }
     }
+    unique_keys
 }
